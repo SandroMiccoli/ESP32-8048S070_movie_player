@@ -15,8 +15,8 @@ Autoplay MJPEG videos from the microSD card on the Sunton/Jingcai **ESP32-8048S0
 3. Enable **PSRAM: OPI PSRAM**.
 4. Set **Flash Size: 16MB** and **Partition Scheme: Huge APP**.
 5. Install libraries:
-   - [JPEGDEC](https://github.com/bitbank2/JPEGDEC) (1.8.4+)
-   - [GFX Library for Arduino](https://github.com/moononournation/Arduino_GFX) — copy from `7.0inch_ESP32-8048S070/1-Demo/Demo_Arduino/Libraries/Arduino_GFX-master` or install from Library Manager
+  - [JPEGDEC](https://github.com/bitbank2/JPEGDEC) (1.8.4+)
+  - [GFX Library for Arduino](https://github.com/moononournation/Arduino_GFX) — copy from `7.0inch_ESP32-8048S070/1-Demo/Demo_Arduino/Libraries/Arduino_GFX-master` or install from Library Manager
 6. Open `ESP32-8048S070_movie_player.ino` and upload.
 
 **Important:** All sketch files must be in the same folder. Arduino IDE requires this layout:
@@ -57,11 +57,13 @@ Videos must be **MJPEG** (a stream of JPEG frames). Convert with ffmpeg.
 
 Playback speed is dominated by the **software JPEG decode**, which scales roughly with pixel count, so the encoded resolution is the main lever. Pick one of these presets depending on whether you want quality or smoothness (measured frame rates on this board, after the dual-core pipeline below):
 
-| Preset | ffmpeg `scale` | Approx. fps |
-|--------|----------------|-------------|
-| Full quality | `800:480` | ~10–11 fps |
-| **Balanced (recommended)** | `640:384` | ~14–15 fps |
-| Smoothest | `480:288` | ~24–25 fps |
+
+| Preset                     | ffmpeg `scale` | Approx. fps |
+| -------------------------- | -------------- | ----------- |
+| Full quality               | `800:480`      | ~10–11 fps  |
+| **Balanced (recommended)** | `640:384`      | ~14–15 fps  |
+| Smoothest                  | `480:288`      | ~24–25 fps  |
+
 
 ```bash
 # Full quality — native panel resolution
@@ -76,6 +78,25 @@ ffmpeg -i input.mp4 -vf "scale=480:288:force_original_aspect_ratio=decrease,fps=
 
 Lower-resolution frames are centered on the panel (letterboxed at native size — no hardware upscaling), so they appear smaller/softer but decode much faster.
 
+### Audio extraction (synced to 12 fps MJPEG)
+
+The ESP32-8048S070 has an onboard **MAX98357 I2S amplifier**. Use **16-bit PCM WAV**, **mono**, **16 kHz** — the format the I2S peripheral expects for direct SD-card playback.
+
+Generate the MJPEG and WAV in **one ffmpeg pass** from the same `input.mp4` so both outputs share the source timeline (the `fps=12` video filter keeps the original duration; audio is mapped from the same input):
+
+```bash
+# Balanced preset — 12 fps MJPEG + synced WAV for onboard I2S speaker
+ffmpeg -i input.mp4 -filter_complex "[0:v]scale=640:384:force_original_aspect_ratio=decrease,fps=12[v]" -map "[v]" -q:v 9 -an output_640.mjpeg -map 0:a? -c:a pcm_s16le -ar 16000 -ac 1 output_640.wav
+```
+
+`0:a?` skips the WAV when the source has no audio track. Swap the `scale=…` value to match whichever video preset you use above.
+
+Copy matching pairs to the SD card (e.g. `output_640.mjpeg` + `output_640.wav`). Standalone audio from the same source:
+
+```bash
+ffmpeg -i input.mp4 -vn -c:a pcm_s16le -ar 16000 -ac 1 output.wav
+```
+
 Tips for smoother playback:
 
 - Keep resolution at or below **800×480**.
@@ -87,7 +108,7 @@ Tips for smoother playback:
 
 The player overlaps work across both ESP32-S3 cores: a reader task (pinned to core 0) pulls complete JPEG frames off the SD card into a small ring of PSRAM buffers, while the loop core decodes and draws them. SD read time is therefore hidden behind decode time. Per-file serial output reports `wait` / `decode+draw` / `flush` milliseconds — `wait` near zero means decode is the bottleneck (expected); a large `wait` means the SD reader can't keep up (try a lower `-q:v`).
 
-Pipeline tuning lives in `app_config.h` (`MJPEG_FRAME_SLOT_COUNT`, `MJPEG_FRAME_SLOT_BYTES`, and the `MJPEG_READER_TASK_*` settings).
+Pipeline tuning lives in `app_config.h` (`MJPEG_FRAME_SLOT_COUNT`, `MJPEG_FRAME_SLOT_BYTES`, and the `MJPEG_READER_TASK_`* settings).
 
 ## Display flicker troubleshooting
 
@@ -109,21 +130,25 @@ The default timing uses **Profile B** at **16 MHz** (same as the board's PDQgrap
 
 Edit `app_config.h` to change:
 
-| Setting | Default |
-|---------|---------|
-| Video folder | `/mjpeg` |
-| MJPEG buffer | 512 KB (PSRAM) |
-| Frame slots | 3 × 192 KB (PSRAM) |
-| SD SPI clock | 40 MHz |
-| Panel PCLK | 12 MHz |
+
+| Setting      | Default            |
+| ------------ | ------------------ |
+| Video folder | `/mjpeg`           |
+| MJPEG buffer | 512 KB (PSRAM)     |
+| Frame slots  | 3 × 192 KB (PSRAM) |
+| SD SPI clock | 40 MHz             |
+| Panel PCLK   | 12 MHz             |
+
 
 ## On-screen messages
 
-| Message | Meaning |
-|---------|---------|
-| INSERT SD CARD | No SD card detected |
-| NO /mjpeg FOLDER | Create `/mjpeg` on the SD card |
+
+| Message           | Meaning                                         |
+| ----------------- | ----------------------------------------------- |
+| INSERT SD CARD    | No SD card detected                             |
+| NO /mjpeg FOLDER  | Create `/mjpeg` on the SD card                  |
 | NO MOVIES TO PLAY | Folder exists but has no `.mjpeg`/`.mjpg` files |
+
 
 Serial output (115200 baud) logs playback stats per file.
 
