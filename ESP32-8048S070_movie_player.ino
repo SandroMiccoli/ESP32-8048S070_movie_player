@@ -3,31 +3,44 @@
 #include <SPI.h>
 #include <SD.h>
 #include <esp_heap_caps.h>
+#include <esp_system.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <freertos/queue.h>
+#include <freertos/semphr.h>
 
 #include <Arduino_GFX_Library.h>
 
 #include "app_config.h"
 #include "MjpegClass.h"
+#include "WavPlayer.h"
+#include "Mp3Player.h"
+
+enum class AudioKind
+{
+  None,
+  Wav,
+  Mp3
+};
+
+static AudioKind activeAudioKind = AudioKind::None;
 
 // ---------------------------------------------------------------------------
-// Display (Arduino_GFX RGB panel — ESP32-8048S070 Profile B)
+// Display (Arduino_GFX RGB panel — ESP32-8048S070, Arduino_GFX 3.x API)
 // ---------------------------------------------------------------------------
 
-Arduino_ESP32RGBPanel *bus = new Arduino_ESP32RGBPanel(
-    GFX_NOT_DEFINED /* CS */, GFX_NOT_DEFINED /* SCK */, GFX_NOT_DEFINED /* SDA */,
+Arduino_ESP32RGBPanel *rgbpanel = new Arduino_ESP32RGBPanel(
     LCD_PIN_DE, LCD_PIN_VSYNC, LCD_PIN_HSYNC, LCD_PIN_PCLK,
     LCD_PIN_R0, LCD_PIN_R1, LCD_PIN_R2, LCD_PIN_R3, LCD_PIN_R4,
     LCD_PIN_G0, LCD_PIN_G1, LCD_PIN_G2, LCD_PIN_G3, LCD_PIN_G4, LCD_PIN_G5,
-    LCD_PIN_B0, LCD_PIN_B1, LCD_PIN_B2, LCD_PIN_B3, LCD_PIN_B4);
+    LCD_PIN_B0, LCD_PIN_B1, LCD_PIN_B2, LCD_PIN_B3, LCD_PIN_B4,
+    LCD_HSYNC_POLARITY, LCD_HSYNC_FRONT_PORCH, LCD_HSYNC_PULSE_WIDTH, LCD_HSYNC_BACK_PORCH,
+    LCD_VSYNC_POLARITY, LCD_VSYNC_FRONT_PORCH, LCD_VSYNC_PULSE_WIDTH, LCD_VSYNC_BACK_PORCH,
+    LCD_PCLK_ACTIVE_NEG, LCD_PCLK_HZ, false /* useBigEndian */,
+    0 /* de_idle_high */, 0 /* pclk_idle_high */, LCD_BOUNCE_BUFFER_PX);
 
-Arduino_GFX *gfx = new Arduino_RPi_DPI_RGBPanel(
-    bus,
-    LCD_WIDTH, LCD_HSYNC_POLARITY, LCD_HSYNC_FRONT_PORCH, LCD_HSYNC_PULSE_WIDTH, LCD_HSYNC_BACK_PORCH,
-    LCD_HEIGHT, LCD_VSYNC_POLARITY, LCD_VSYNC_FRONT_PORCH, LCD_VSYNC_PULSE_WIDTH, LCD_VSYNC_BACK_PORCH,
-    LCD_PCLK_ACTIVE_NEG, LCD_PCLK_HZ, false /* auto_flush — flush once per frame */);
+Arduino_GFX *gfx = new Arduino_RGB_Display(
+    LCD_WIDTH, LCD_HEIGHT, rgbpanel, 0 /* rotation */, false /* auto_flush */);
 
 // ---------------------------------------------------------------------------
 // MJPEG playback state
@@ -37,6 +50,7 @@ static MjpegClass mjpeg;
 static File mjpegFile;
 static uint8_t *mjpegBuffer = nullptr;
 static bool sdCardReady = false;
+static SemaphoreHandle_t sdCardMutex = nullptr;
 
 // Dual-core pipeline: the reader task fills frame slots, the loop core decodes.
 static uint8_t *frameSlots[MJPEG_FRAME_SLOT_COUNT] = {nullptr};
@@ -55,15 +69,14 @@ enum MovieScanResult
 
 static void initBacklight()
 {
-  ledcSetup(0, 600, 8);
-  ledcAttachPin(TFT_BL, 0);
-  ledcWrite(0, 255);
+  ledcAttach(TFT_BL, 600, 8);
+  ledcWrite(TFT_BL, 255);
 }
 
 static void showStatus(const char *line1, const char *line2 = nullptr)
 {
-  gfx->fillScreen(BLACK);
-  gfx->setTextColor(WHITE);
+  gfx->fillScreen(RGB565_BLACK);
+  gfx->setTextColor(RGB565_WHITE);
   gfx->setTextSize(2);
   gfx->setCursor(20, LCD_HEIGHT / 2 - 30);
   gfx->println(line1);
@@ -114,6 +127,240 @@ static bool mediaPathIsMjpeg(const char *path)
   return pathEndsWith(path, ".mjpeg") || pathEndsWith(path, ".mjpg");
 }
 
+// Companion audio: same basename as the MJPEG file (.mp3 preferred, .wav fallback).
+static String basePathForMjpeg(const char *mjpegPath)
+{
+  String base = mjpegPath;
+  if (pathEndsWith(mjpegPath, ".mjpeg"))
+  {
+    base.remove(base.length() - 6);
+  }
+  else if (pathEndsWith(mjpegPath, ".mjpg"))
+  {
+    base.remove(base.length() - 5);
+  }
+  return base;
+}
+
+static bool companionAudioExists(const char *path)
+{
+  File f = SD.open(path, FILE_READ);
+  if (!f || f.isDirectory())
+  {
+    if (f)
+    {
+      f.close();
+    }
+    return false;
+  }
+  f.close();
+  return true;
+}
+
+static void stopActiveAudio(WavPlayer &wavPlayer, Mp3Player &mp3Player)
+{
+  if (activeAudioKind == AudioKind::Wav)
+  {
+    wavPlayer.stop();
+  }
+  else if (activeAudioKind == AudioKind::Mp3)
+  {
+    mp3Player.stop();
+  }
+  activeAudioKind = AudioKind::None;
+}
+
+static bool audioIsPlaying(const WavPlayer &wavPlayer, const Mp3Player &mp3Player)
+{
+  if (activeAudioKind == AudioKind::Wav)
+  {
+    return wavPlayer.isPlaying();
+  }
+  if (activeAudioKind == AudioKind::Mp3)
+  {
+    return mp3Player.isPlaying();
+  }
+  return false;
+}
+
+static uint32_t audioElapsedMs(const WavPlayer &wavPlayer, const Mp3Player &mp3Player)
+{
+  if (activeAudioKind == AudioKind::Wav)
+  {
+    return wavPlayer.getElapsedMs();
+  }
+  if (activeAudioKind == AudioKind::Mp3)
+  {
+    return mp3Player.getElapsedMs();
+  }
+  return 0;
+}
+
+static uint32_t audioBytesPlayed(const WavPlayer &wavPlayer, const Mp3Player &mp3Player)
+{
+  if (activeAudioKind == AudioKind::Wav)
+  {
+    return wavPlayer.getBytesPlayed();
+  }
+  if (activeAudioKind == AudioKind::Mp3)
+  {
+    return mp3Player.getBytesPlayed();
+  }
+  return 0;
+}
+
+static bool startCompanionAudio(
+    const char *mjpegPath,
+    WavPlayer &wavPlayer,
+    Mp3Player &mp3Player,
+    SemaphoreHandle_t sdMutex)
+{
+  stopActiveAudio(wavPlayer, mp3Player);
+
+  const String base = basePathForMjpeg(mjpegPath);
+  const String mp3Path = base + ".mp3";
+  const String wavPath = base + ".wav";
+
+  Serial.print("MJPEG: ");
+  Serial.println(mjpegPath);
+  Serial.print("Audio: ");
+  Serial.flush();
+
+  if (companionAudioExists(mp3Path.c_str()))
+  {
+    Serial.println(mp3Path);
+    Serial.flush();
+    if (mp3Player.start(mp3Path.c_str(), sdMutex))
+    {
+      activeAudioKind = AudioKind::Mp3;
+      return true;
+    }
+    Serial.println("MP3 start failed");
+  }
+  else if (companionAudioExists(wavPath.c_str()))
+  {
+    Serial.println(wavPath);
+    Serial.flush();
+    if (wavPlayer.start(wavPath.c_str(), sdMutex))
+    {
+      activeAudioKind = AudioKind::Wav;
+      return true;
+    }
+    Serial.println("WAV start failed");
+  }
+  else
+  {
+    Serial.println("(not found — expected .mp3 or .wav)");
+  }
+
+  Serial.flush();
+  activeAudioKind = AudioKind::None;
+  return false;
+}
+
+static void waitForAvSync(const WavPlayer &wavPlayer, const Mp3Player &mp3Player, uint32_t frameIndex)
+{
+  const uint32_t targetMs = (frameIndex * 1000u) / MJPEG_FRAME_RATE;
+  const uint32_t deadlineMs = millis() + 500;
+  while (audioIsPlaying(wavPlayer, mp3Player))
+  {
+    if (audioElapsedMs(wavPlayer, mp3Player) >= targetMs)
+    {
+      return;
+    }
+    if ((int32_t)(millis() - deadlineMs) >= 0)
+    {
+      Serial.printf("AV sync timeout at frame %u (audio=%u ms)\n",
+                    (unsigned)frameIndex, audioElapsedMs(wavPlayer, mp3Player));
+      return;
+    }
+    vTaskDelay(1);
+  }
+}
+
+static void printResetReason()
+{
+  esp_reset_reason_t reason = esp_reset_reason();
+  Serial.print("Reset reason: ");
+  switch (reason)
+  {
+  case ESP_RST_POWERON:
+    Serial.println("power-on");
+    break;
+  case ESP_RST_SW:
+    Serial.println("software");
+    break;
+  case ESP_RST_PANIC:
+    Serial.println("panic/crash (often PSRAM/framebuffer — see message below if repeated)");
+    break;
+  case ESP_RST_INT_WDT:
+    Serial.println("interrupt watchdog");
+    break;
+  case ESP_RST_TASK_WDT:
+    Serial.println("task watchdog");
+    break;
+  case ESP_RST_WDT:
+    Serial.println("other watchdog");
+    break;
+  case ESP_RST_BROWNOUT:
+    Serial.println("brownout");
+    break;
+  default:
+    Serial.println((int)reason);
+    break;
+  }
+}
+
+// RGB panel needs ~750 KB contiguous PSRAM for an 800x480 framebuffer.
+static bool verifyPsramForDisplay()
+{
+  constexpr uint32_t kFramebufferBytes = (uint32_t)LCD_WIDTH * (uint32_t)LCD_HEIGHT * 2u;
+
+  Serial.printf("Flash %u MB, PSRAM %u MB, free PSRAM %u KB (LCD needs %u KB)\n",
+                ESP.getFlashChipSize() / (1024u * 1024u),
+                ESP.getPsramSize() / (1024u * 1024u),
+                ESP.getFreePsram() / 1024u,
+                kFramebufferBytes / 1024u);
+
+  if (ESP.getPsramSize() == 0)
+  {
+    Serial.println();
+    Serial.println("FATAL: PSRAM not detected — display cannot start.");
+    Serial.println("Arduino IDE -> Tools, set ALL of the following:");
+    Serial.println("  Board: ESP32S3 Dev Module");
+    Serial.println("  PSRAM: OPI PSRAM          <-- required");
+    Serial.println("  Flash Size: 16MB (128Mb)");
+    Serial.println("  Partition Scheme: Huge APP (3MB No OTA/1MB SPIFFS)");
+    Serial.println("  Flash Mode: QIO");
+    Serial.println("Then upload again.");
+    return false;
+  }
+
+  void *probe = heap_caps_aligned_alloc(64, kFramebufferBytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  if (probe == nullptr)
+  {
+    Serial.println();
+    Serial.println("FATAL: PSRAM present but RGB framebuffer alloc failed.");
+    Serial.println("Try PSRAM: OPI PSRAM (not QSPI). Reboot after changing Tools menu.");
+    return false;
+  }
+  heap_caps_free(probe);
+  return true;
+}
+
+static void haltWithStatus(const char *line1, const char *line2 = nullptr)
+{
+  Serial.println(line1);
+  if (line2 != nullptr)
+  {
+    Serial.println(line2);
+  }
+  while (true)
+  {
+    delay(1000);
+  }
+}
+
 static bool initSDCard()
 {
   SPI.begin(SPI_SCK, SPI_MISO, SPI_MOSI);
@@ -125,8 +372,17 @@ static bool initSDCard()
   }
 
   sdCardReady = true;
+  if (sdCardMutex == nullptr)
+  {
+    sdCardMutex = xSemaphoreCreateMutex();
+  }
   Serial.println("SD card mounted");
   return true;
+}
+
+static void setSdSpiFrequency(uint32_t hz)
+{
+  SPI.setFrequency(hz);
 }
 
 static bool ensureSDCardReady()
@@ -211,7 +467,17 @@ static void mjpegReaderTask(void *param)
 {
   while (mjpegFile.available())
   {
-    if (!mjpeg.readMjpegBuf())
+    bool gotFrame = false;
+    if (sdCardMutex != nullptr)
+    {
+      xSemaphoreTake(sdCardMutex, portMAX_DELAY);
+    }
+    gotFrame = mjpeg.readMjpegBuf();
+    if (sdCardMutex != nullptr)
+    {
+      xSemaphoreGive(sdCardMutex);
+    }
+    if (!gotFrame)
     {
       break;
     }
@@ -259,11 +525,15 @@ static bool playMjpegOnce(const char *path)
     return false;
   }
 
+  WavPlayer wavPlayer;
+  Mp3Player mp3Player;
+
   mjpegFile = SD.open(path, FILE_READ);
   if (!mjpegFile || mjpegFile.isDirectory())
   {
     Serial.print("mjpeg open failed: ");
     Serial.println(path);
+    stopActiveAudio(wavPlayer, mp3Player);
     return false;
   }
 
@@ -280,10 +550,11 @@ static bool playMjpegOnce(const char *path)
   {
     Serial.println("mjpeg.setup() failed");
     mjpegFile.close();
+    stopActiveAudio(wavPlayer, mp3Player);
     return false;
   }
 
-  gfx->fillScreen(BLACK);
+  gfx->fillScreen(RGB565_BLACK);
   gfx->flush();
 
   // Reset the slot ring: every slot starts free, no frames pending.
@@ -294,6 +565,22 @@ static bool playMjpegOnce(const char *path)
     xQueueSend(freeSlotQueue, &i, 0);
   }
 
+  if (!startCompanionAudio(path, wavPlayer, mp3Player, sdCardMutex))
+  {
+    Serial.println("Playing video only (no audio)");
+    Serial.flush();
+  }
+  else
+  {
+    Serial.println("Audio playback active");
+    Serial.flush();
+  }
+
+  if (audioIsPlaying(wavPlayer, mp3Player))
+  {
+    setSdSpiFrequency(SD_SPI_FREQ_AV_HZ);
+  }
+
   TaskHandle_t readerTask = nullptr;
   if (xTaskCreatePinnedToCore(
           mjpegReaderTask, "mjpegReader", MJPEG_READER_TASK_STACK, nullptr,
@@ -301,6 +588,7 @@ static bool playMjpegOnce(const char *path)
   {
     Serial.println("reader task create failed");
     mjpegFile.close();
+    stopActiveAudio(wavPlayer, mp3Player);
     return false;
   }
 
@@ -326,6 +614,11 @@ static bool playMjpegOnce(const char *path)
       break;
     }
 
+    if (audioIsPlaying(wavPlayer, mp3Player))
+    {
+      waitForAvSync(wavPlayer, mp3Player, frameCount);
+    }
+
     mjpeg.drawJpgBuffer(frameSlots[slot], frameSlotLen[slot], LCD_WIDTH, LCD_HEIGHT);
     uint32_t t2 = micros();
 
@@ -343,6 +636,13 @@ static bool playMjpegOnce(const char *path)
   }
 
   mjpegFile.close();
+  const uint32_t audioMs = audioElapsedMs(wavPlayer, mp3Player);
+  const uint32_t audioBytes = audioBytesPlayed(wavPlayer, mp3Player);
+  stopActiveAudio(wavPlayer, mp3Player);
+  setSdSpiFrequency(SD_SPI_FREQ_HZ);
+
+  Serial.printf("Audio done: %u bytes, %u ms\n", audioBytes, audioMs);
+  Serial.flush();
 
   uint32_t elapsedMs = millis() - startMs;
   float fps = (elapsedMs > 0) ? (frameCount * 1000.0f / (float)elapsedMs) : 0.0f;
@@ -424,11 +724,21 @@ static MovieScanResult playMoviesFromDirectory(const char *directoryPath)
 void setup()
 {
   Serial.begin(115200);
-  delay(200);
+  delay(500);
   Serial.println("ESP32-8048S070 MJPEG PLAYER INIT...");
+  printResetReason();
 
-  gfx->begin();
-  gfx->fillScreen(BLACK);
+  if (!verifyPsramForDisplay())
+  {
+    haltWithStatus("PSRAM REQUIRED", "SEE SERIAL LOG");
+  }
+
+  if (!gfx->begin())
+  {
+    haltWithStatus("DISPLAY INIT FAILED", "SEE SERIAL LOG");
+  }
+
+  gfx->fillScreen(RGB565_BLACK);
   initBacklight();
 
   if (!initSDCard())
@@ -438,6 +748,8 @@ void setup()
   }
 
   showStatus("PLAYER READY", "READING /mjpeg");
+  Serial.println("Setup complete");
+  Serial.flush();
 }
 
 void loop()

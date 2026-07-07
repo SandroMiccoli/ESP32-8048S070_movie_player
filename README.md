@@ -1,6 +1,6 @@
 # ESP32-8048S070 Movie Player
 
-Autoplay MJPEG videos from the microSD card on the Sunton/Jingcai **ESP32-8048S070** 7.0" board (800×480 RGB panel, ESP32-S3, 8 MB PSRAM). Video only — no audio, no touch UI.
+Autoplay MJPEG videos from the microSD card on the Sunton/Jingcai **ESP32-8048S070** 7.0" board (800×480 RGB panel, ESP32-S3, 8 MB PSRAM). Optional synced **MP3** or **WAV** audio via the onboard NS4168 amplifier.
 
 ## Hardware
 
@@ -26,6 +26,11 @@ ESP32-8048S070_movie_player/
   ESP32-8048S070_movie_player.ino
   app_config.h
   MjpegClass.h
+  I2sPcmOutput.h
+  WavPlayer.h
+  Mp3Player.h
+  minimp3.h
+  minimp3.cpp
 ```
 
 Open the `.ino` file directly — do not nest it in a subfolder.
@@ -44,10 +49,12 @@ Create a folder named `mjpeg` at the root of the SD card and copy your video fil
 ```
 /mjpeg
   movie1.mjpeg
+  movie1.mp3      ← optional synced audio (preferred)
   movie2.mjpg
+  movie2.wav      ← WAV fallback
 ```
 
-Supported extensions: `.mjpeg`, `.mjpg` (case-insensitive).
+Supported extensions: `.mjpeg`, `.mjpg` (case-insensitive). Audio: same basename with `.mp3` (preferred) or `.wav`.
 
 The player scans `/mjpeg`, plays every video once, then loops forever.
 
@@ -80,22 +87,44 @@ Lower-resolution frames are centered on the panel (letterboxed at native size �
 
 ### Audio extraction (synced to 12 fps MJPEG)
 
-The ESP32-8048S070 has an onboard **MAX98357 I2S amplifier**. Use **16-bit PCM WAV**, **mono**, **16 kHz** — the format the I2S peripheral expects for direct SD-card playback.
+The ESP32-8048S070 has an onboard **NS4168 I2S amplifier**.
 
-Generate the MJPEG and WAV in **one ffmpeg pass** from the same `input.mp4` so both outputs share the source timeline (the `fps=12` video filter keeps the original duration; audio is mapped from the same input):
+**Recommended: MP3** — much smaller than WAV, low SD bandwidth (stable with video). The player decodes MP3 on the fly with [minimp3](https://github.com/lieff/minimp3).
 
-```bash
-# Balanced preset — 12 fps MJPEG + synced WAV for onboard I2S speaker
-ffmpeg -i input.mp4 -filter_complex "[0:v]scale=640:384:force_original_aspect_ratio=decrease,fps=12[v]" -map "[v]" -q:v 9 -an output_640.mjpeg -map 0:a? -c:a pcm_s16le -ar 16000 -ac 1 output_640.wav
-```
+**Optional: WAV** — 16-bit PCM mono at **16 kHz** or **8 kHz** (smaller). Large WAV files (>5 MB) stream from SD and may crash; prefer MP3 for long clips.
 
-`0:a?` skips the WAV when the source has no audio track. Swap the `scale=…` value to match whichever video preset you use above.
-
-Copy matching pairs to the SD card (e.g. `output_640.mjpeg` + `output_640.wav`). Standalone audio from the same source:
+Export MJPEG and audio in **one ffmpeg pass** with **`-shortest`**:
 
 ```bash
-ffmpeg -i input.mp4 -vn -c:a pcm_s16le -ar 16000 -ac 1 output.wav
+# Recommended — 12 fps MJPEG + compact MP3
+ffmpeg -i input.mp4 -filter_complex "[0:v]scale=640:384:force_original_aspect_ratio=decrease,fps=12[v]" -map "[v]" -q:v 9 -an output.mjpeg -map 0:a? -c:a libmp3lame -ar 16000 -ac 1 -b:a 32k -shortest output.mp3
 ```
+
+Copy to the SD card as a matching pair:
+
+```
+/mjpeg
+  output.mjpeg
+  output.mp3
+```
+
+The player prefers `.mp3` over `.wav` when both exist.
+
+**Size guide** (4.5 min clip):
+
+| Format | Approx. size | Notes |
+| ------ | ------------ | ----- |
+| WAV 16 kHz | ~8.7 MB | SD streaming — avoid |
+| WAV 8 kHz | ~4.3 MB | Supported if you set matching `-ar 8000` |
+| **MP3 32 kbps** | **~1 MB** | **Recommended** |
+
+WAV fallback (short clips only):
+
+```bash
+ffmpeg -i input.mp4 -filter_complex "[0:v]scale=640:384:force_original_aspect_ratio=decrease,fps=12[v]" -map "[v]" -q:v 9 -an output.mjpeg -map 0:a? -c:a pcm_s16le -ar 16000 -ac 1 -shortest output.wav
+```
+
+`0:a?` skips audio when the source has no audio track. `-shortest` keeps audio the same length as the video.
 
 Tips for smoother playback:
 

@@ -45,8 +45,22 @@
 #define LCD_VSYNC_PULSE_WIDTH 13
 #define LCD_VSYNC_BACK_PORCH 10
 
+// Profile A
+// #define LCD_HSYNC_POLARITY 0
+// #define LCD_HSYNC_FRONT_PORCH 8
+// #define LCD_HSYNC_PULSE_WIDTH 2
+// #define LCD_HSYNC_BACK_PORCH 43
+
+// #define LCD_VSYNC_POLARITY 0
+// #define LCD_VSYNC_FRONT_PORCH 8
+// #define LCD_VSYNC_PULSE_WIDTH 2
+// #define LCD_VSYNC_BACK_PORCH 12
+
 #define LCD_PCLK_ACTIVE_NEG 1
 #define LCD_PCLK_HZ 12000000
+
+// Recommended when the framebuffer lives in PSRAM (ESP-IDF RGB LCD driver).
+#define LCD_BOUNCE_BUFFER_PX (LCD_WIDTH * 40)
 
 // ---------------------------------------------------------------------------
 // SD card — SPI (board microSD slot)
@@ -57,6 +71,37 @@
 #define SPI_MISO 13
 #define SPI_SCK 12
 #define SD_SPI_FREQ_HZ 40000000
+// Lower SPI clock while MJPEG + audio stream share the bus (reduces glitches/crashes).
+#define SD_SPI_FREQ_AV_HZ 20000000
+
+// ---------------------------------------------------------------------------
+// I2S audio — onboard NS4168 (ESP32-8048S070 v1.4; v1.0 boards may need BCLK=19)
+// ---------------------------------------------------------------------------
+
+#define I2S_PIN_BCLK 0
+#define I2S_PIN_LRCLK 18
+#define I2S_PIN_DOUT 17
+
+#define AUDIO_SAMPLE_RATE 16000
+#define AUDIO_BITS_PER_SAMPLE 16
+#define AUDIO_CHANNELS 1
+
+// MP3 streaming buffer (compressed bytes read from SD — much smaller than PCM WAV).
+#define MP3_COMPRESSED_BUF_BYTES 8192
+
+// WAVs that fit in PSRAM are loaded once (no SD reads during playback — most reliable).
+// 16 kHz mono 16-bit ≈ 32 KB/s → 5 MB holds ~2.6 minutes of audio.
+#define AUDIO_MAX_PRELOAD_BYTES (5u * 1024u * 1024u)
+#define AUDIO_STREAM_RING_BYTES (384u * 1024u)
+#define AUDIO_SD_READ_BYTES 2048
+#define AUDIO_WRITE_CHUNK_BYTES 1024
+#define AUDIO_PLAYER_TASK_CORE 1
+#define AUDIO_PLAYER_TASK_STACK 6144
+#define MP3_PLAYER_TASK_STACK 8192
+#define AUDIO_PLAYER_TASK_PRIORITY 10
+
+// Encoded MJPEG frame rate used for A/V sync (must match ffmpeg fps= value).
+#define MJPEG_FRAME_RATE 10
 
 // ---------------------------------------------------------------------------
 // MJPEG playback
