@@ -15,6 +15,10 @@
 #include "MjpegClass.h"
 #include "WavPlayer.h"
 #include "Mp3Player.h"
+#include "MqttCommand.h"
+#if MQTT_TRIGGER_MODE
+#include "MqttWifi.h"
+#endif
 
 enum class AudioKind
 {
@@ -58,6 +62,11 @@ static int32_t frameSlotLen[MJPEG_FRAME_SLOT_COUNT] = {0};
 static QueueHandle_t freeSlotQueue = nullptr;   // indices ready to be filled
 static QueueHandle_t filledSlotQueue = nullptr; // indices holding a frame
 static const int kReaderEofSentinel = -1;
+
+#if MQTT_TRIGGER_MODE
+static MqttCommandState g_playCommands;
+static volatile bool g_readerStop = false;
+#endif
 
 enum MovieScanResult
 {
@@ -258,10 +267,24 @@ static bool startCompanionAudio(
   return false;
 }
 
-static void waitForAvSync(const WavPlayer &wavPlayer, const Mp3Player &mp3Player, uint32_t frameIndex)
+static uint32_t videoTimelineMs(uint32_t frameIndex)
 {
-  const uint32_t targetMs = (frameIndex * 1000u) / MJPEG_FRAME_RATE;
-  const uint32_t deadlineMs = millis() + 500;
+  return (frameIndex * 1000u) / MJPEG_FRAME_RATE;
+}
+
+static int32_t audioMasterFrameIndex(uint32_t audioMs)
+{
+  return (int32_t)((audioMs * (uint64_t)MJPEG_FRAME_RATE) / 1000u);
+}
+
+// Wait when video decode got ahead of the audio master clock.
+static void waitUntilAudioReachesFrame(
+    const WavPlayer &wavPlayer,
+    const Mp3Player &mp3Player,
+    uint32_t frameIndex)
+{
+  const uint32_t targetMs = videoTimelineMs(frameIndex);
+  const uint32_t deadlineMs = millis() + (uint32_t)AV_SYNC_MAX_WAIT_MS;
   while (audioIsPlaying(wavPlayer, mp3Player))
   {
     if (audioElapsedMs(wavPlayer, mp3Player) >= targetMs)
@@ -270,10 +293,22 @@ static void waitForAvSync(const WavPlayer &wavPlayer, const Mp3Player &mp3Player
     }
     if ((int32_t)(millis() - deadlineMs) >= 0)
     {
-      Serial.printf("AV sync timeout at frame %u (audio=%u ms)\n",
-                    (unsigned)frameIndex, audioElapsedMs(wavPlayer, mp3Player));
+      Serial.printf("\nAV sync wait timeout at frame %u (audio=%u ms, target=%u ms)\n",
+                    (unsigned)frameIndex,
+                    audioElapsedMs(wavPlayer, mp3Player),
+                    targetMs);
       return;
     }
+    vTaskDelay(1);
+  }
+}
+
+// Pace video-only playback to the encoded frame rate.
+static void paceVideoOnlyFrame(uint32_t frameIndex, uint32_t wallStartMs)
+{
+  const uint32_t targetMs = wallStartMs + videoTimelineMs(frameIndex);
+  while ((int32_t)(millis() - targetMs) < 0)
+  {
     vTaskDelay(1);
   }
 }
@@ -467,6 +502,12 @@ static void mjpegReaderTask(void *param)
 {
   while (mjpegFile.available())
   {
+#if MQTT_TRIGGER_MODE
+    if (g_readerStop || mqttCommandShouldAbort(g_playCommands))
+    {
+      break;
+    }
+#endif
     bool gotFrame = false;
     if (sdCardMutex != nullptr)
     {
@@ -489,10 +530,24 @@ static void mjpegReaderTask(void *param)
     }
 
     int slot = 0;
+#if MQTT_TRIGGER_MODE
+    // Timed wait so abort can unblock a reader stuck on a full ring.
+    while (xQueueReceive(freeSlotQueue, &slot, pdMS_TO_TICKS(50)) != pdTRUE)
+    {
+      if (g_readerStop || mqttCommandShouldAbort(g_playCommands))
+      {
+        int sentinel = kReaderEofSentinel;
+        xQueueSend(filledSlotQueue, &sentinel, 0);
+        vTaskDelete(nullptr);
+        return;
+      }
+    }
+#else
     if (xQueueReceive(freeSlotQueue, &slot, portMAX_DELAY) != pdTRUE)
     {
       break;
     }
+#endif
 
     if (len > (int32_t)MJPEG_FRAME_SLOT_BYTES)
     {
@@ -527,6 +582,11 @@ static bool playMjpegOnce(const char *path)
 
   WavPlayer wavPlayer;
   Mp3Player mp3Player;
+
+#if MQTT_TRIGGER_MODE
+  g_readerStop = false;
+  mqttCommandClearAbort(g_playCommands);
+#endif
 
   mjpegFile = SD.open(path, FILE_READ);
   if (!mjpegFile || mjpegFile.isDirectory())
@@ -591,9 +651,10 @@ static bool playMjpegOnce(const char *path)
     stopActiveAudio(wavPlayer, mp3Player);
     return false;
   }
+  (void)readerTask;
 
   uint32_t frameCount = 0;
-  uint32_t startMs = millis();
+  bool aborted = false;
 
   uint64_t waitUs = 0;   // blocked waiting for a frame => reader-bound
   uint64_t decodeUs = 0; // JPEG decode + draw into framebuffer
@@ -601,12 +662,28 @@ static bool playMjpegOnce(const char *path)
 
   while (true)
   {
+#if MQTT_TRIGGER_MODE
+    if (mqttCommandShouldAbort(g_playCommands))
+    {
+      aborted = true;
+      g_readerStop = true;
+      break;
+    }
+#endif
+
     int slot = 0;
     uint32_t t0 = micros();
+#if MQTT_TRIGGER_MODE
+    if (xQueueReceive(filledSlotQueue, &slot, pdMS_TO_TICKS(50)) != pdTRUE)
+    {
+      continue;
+    }
+#else
     if (xQueueReceive(filledSlotQueue, &slot, portMAX_DELAY) != pdTRUE)
     {
       break;
     }
+#endif
     uint32_t t1 = micros();
 
     if (slot == kReaderEofSentinel)
@@ -616,7 +693,7 @@ static bool playMjpegOnce(const char *path)
 
     if (audioIsPlaying(wavPlayer, mp3Player))
     {
-      waitForAvSync(wavPlayer, mp3Player, frameCount);
+      waitUntilAudioReachesFrame(wavPlayer, mp3Player, frameCount);
     }
 
     mjpeg.drawJpgBuffer(frameSlots[slot], frameSlotLen[slot], LCD_WIDTH, LCD_HEIGHT);
@@ -635,6 +712,31 @@ static bool playMjpegOnce(const char *path)
     yield();
   }
 
+#if MQTT_TRIGGER_MODE
+  g_readerStop = true;
+  // Unblock a reader waiting on freeSlotQueue, then drain until EOF sentinel or timeout.
+  {
+    int dummySlot = 0;
+    xQueueSend(freeSlotQueue, &dummySlot, 0);
+  }
+  {
+    const uint32_t drainStart = millis();
+    while ((millis() - drainStart) < 500)
+    {
+      int slot = 0;
+      if (xQueueReceive(filledSlotQueue, &slot, pdMS_TO_TICKS(20)) != pdTRUE)
+      {
+        continue;
+      }
+      if (slot == kReaderEofSentinel)
+      {
+        break;
+      }
+      xQueueSend(freeSlotQueue, &slot, 0);
+    }
+  }
+#endif
+
   mjpegFile.close();
   const uint32_t audioMs = audioElapsedMs(wavPlayer, mp3Player);
   const uint32_t audioBytes = audioBytesPlayed(wavPlayer, mp3Player);
@@ -644,15 +746,10 @@ static bool playMjpegOnce(const char *path)
   Serial.printf("Audio done: %u bytes, %u ms\n", audioBytes, audioMs);
   Serial.flush();
 
-  uint32_t elapsedMs = millis() - startMs;
-  float fps = (elapsedMs > 0) ? (frameCount * 1000.0f / (float)elapsedMs) : 0.0f;
-
-  Serial.print("Finished: ");
+  Serial.print(aborted ? "Aborted: " : "Finished: ");
   Serial.print(path);
   Serial.print(" frames=");
-  Serial.print(frameCount);
-  Serial.print(" fps=");
-  Serial.println(fps, 2);
+  Serial.println(frameCount);
 
   if (frameCount > 0)
   {
@@ -721,6 +818,71 @@ static MovieScanResult playMoviesFromDirectory(const char *directoryPath)
   return foundMovie ? MOVIE_SCAN_PLAYED : MOVIE_SCAN_NO_MOVIES;
 }
 
+#if MQTT_TRIGGER_MODE
+static bool sdFileExists(const char *path)
+{
+  File f = SD.open(path, FILE_READ);
+  if (!f || f.isDirectory())
+  {
+    if (f)
+    {
+      f.close();
+    }
+    return false;
+  }
+  f.close();
+  return true;
+}
+
+// Loop idle.mjpeg forever; on MQTT alert, abort and play alert.mjpeg once.
+static void playIdleAlertLoop()
+{
+  if (!sdFileExists(MEDIA_IDLE_PATH))
+  {
+    showStatus("MISSING idle.mjpeg", "PUT IN /mjpeg");
+    delay(MJPEG_RETRY_DELAY_MS);
+    return;
+  }
+
+  bool wantAlert = false;
+  PlayCommand cmd;
+  while (mqttCommandReceive(g_playCommands, cmd, 0))
+  {
+    if (cmd == PlayCommand::Alert)
+    {
+      wantAlert = true;
+    }
+  }
+
+  if (wantAlert)
+  {
+    if (!sdFileExists(MEDIA_ALERT_PATH))
+    {
+      Serial.println("alert.mjpeg missing — staying on idle");
+      showStatus("MISSING alert.mjpeg", "PUT IN /mjpeg");
+      delay(500);
+      return;
+    }
+    Serial.print("Playing alert: ");
+    Serial.println(MEDIA_ALERT_PATH);
+    mqttCommandClearAbort(g_playCommands);
+    g_playCommands.playingAlert = true;
+    playMjpegOnce(MEDIA_ALERT_PATH);
+    g_playCommands.playingAlert = false;
+    while (mqttCommandReceive(g_playCommands, cmd, 0))
+    {
+    }
+    mqttCommandClearAbort(g_playCommands);
+    return;
+  }
+
+  Serial.print("Playing idle: ");
+  Serial.println(MEDIA_IDLE_PATH);
+  g_playCommands.playingAlert = false;
+  playMjpegOnce(MEDIA_IDLE_PATH);
+}
+#endif
+
 void setup()
 {
   Serial.begin(115200);
@@ -747,7 +909,19 @@ void setup()
     return;
   }
 
+#if MQTT_TRIGGER_MODE
+  showStatus("PLAYER READY", "WiFi + MQTT...");
+  if (!startMqttWifiTask(g_playCommands))
+  {
+    showStatus("MQTT TASK FAILED", "SEE SERIAL LOG");
+  }
+  else
+  {
+    showStatus("PLAYER READY", "IDLE / ALERT MODE");
+  }
+#else
   showStatus("PLAYER READY", "READING /mjpeg");
+#endif
   Serial.println("Setup complete");
   Serial.flush();
 }
@@ -759,6 +933,10 @@ void loop()
     return;
   }
 
+#if MQTT_TRIGGER_MODE
+  playIdleAlertLoop();
+  delay(10);
+#else
   MovieScanResult result = playMoviesFromDirectory(MJPEG_DIRECTORY_PATH);
 
   if (result == MOVIE_SCAN_NO_FOLDER)
@@ -776,4 +954,5 @@ void loop()
   }
 
   delay(10);
+#endif
 }

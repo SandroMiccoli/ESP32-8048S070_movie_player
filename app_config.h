@@ -60,7 +60,7 @@
 #define LCD_PCLK_HZ 12000000
 
 // Recommended when the framebuffer lives in PSRAM (ESP-IDF RGB LCD driver).
-#define LCD_BOUNCE_BUFFER_PX (LCD_WIDTH * 40)
+#define LCD_BOUNCE_BUFFER_PX (LCD_WIDTH * 10)
 
 // ---------------------------------------------------------------------------
 // SD card — SPI (board microSD slot)
@@ -101,7 +101,10 @@
 #define AUDIO_PLAYER_TASK_PRIORITY 10
 
 // Encoded MJPEG frame rate used for A/V sync (must match ffmpeg fps= value).
-#define MJPEG_FRAME_RATE 10
+#define MJPEG_FRAME_RATE 11
+
+// Max wait when video decode runs ahead of the audio clock.
+#define AV_SYNC_MAX_WAIT_MS 200
 
 // ---------------------------------------------------------------------------
 // MJPEG playback
@@ -111,6 +114,35 @@
 #define MJPEG_BUFFER_SIZE_BYTES (512 * 1024)
 #define MJPEG_USE_BIG_ENDIAN true
 #define MJPEG_RETRY_DELAY_MS 3000
+
+// Idle / alert paths for MQTT sound-trigger mode (must exist on the SD card).
+#define MEDIA_IDLE_PATH "/mjpeg/idle.mjpeg"
+#define MEDIA_ALERT_PATH "/mjpeg/alert.mjpeg"
+
+// When true, loop idle.mjpeg and switch to alert.mjpeg on MQTT "alert".
+// When false, keep the legacy sequential scan of every .mjpeg in /mjpeg.
+#define MQTT_TRIGGER_MODE true
+
+// ---------------------------------------------------------------------------
+// WiFi STA + MQTT (RPi Access Point + Mosquitto)
+// SSID/password must match rpi_sound_trigger/install/setup_ap.sh defaults.
+// ---------------------------------------------------------------------------
+
+#define WIFI_SSID "BOCAS-TELAS"
+#define WIFI_PASSWORD "bocas123"
+#define WIFI_COUNTRY_CODE "BR"
+#define WIFI_CONNECT_TIMEOUT_MS 20000
+#define WIFI_RETRY_DELAY_MS 5000
+
+#define MQTT_HOST "192.168.4.1"
+#define MQTT_PORT 1883
+#define MQTT_TOPIC "displays/trigger"
+#define MQTT_CLIENT_ID_PREFIX "esp32-display-"
+#define MQTT_TASK_STACK 6144
+#define MQTT_TASK_PRIORITY 1
+#define MQTT_TASK_CORE 0
+#define MQTT_RECONNECT_DELAY_MS 3000
+#define MQTT_KEEPALIVE_S 30
 
 // ---------------------------------------------------------------------------
 // Dual-core pipeline — SD reading/framing runs on a task pinned to one core

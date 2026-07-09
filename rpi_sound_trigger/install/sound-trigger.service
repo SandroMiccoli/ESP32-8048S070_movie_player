@@ -1,0 +1,24 @@
+[Unit]
+Description=RPi Sound Trigger (mic → MQTT display alert)
+After=network-online.target mosquitto.service sound.target
+Wants=network-online.target mosquitto.service
+
+[Service]
+Type=simple
+User=pi
+Group=pi
+WorkingDirectory=/home/pi/ESP32-8048S070_movie_player/rpi_sound_trigger
+Environment=PYTHONUNBUFFERED=1
+# Headless by default for install; remove --no-display (and enable config display) for HDMI VU debug.
+ExecStart=/home/pi/ESP32-8048S070_movie_player/rpi_sound_trigger/.venv/bin/python \
+  /home/pi/ESP32-8048S070_movie_player/rpi_sound_trigger/src/main.py \
+  -c /home/pi/ESP32-8048S070_movie_player/rpi_sound_trigger/config.yaml \
+  --no-display
+Restart=on-failure
+RestartSec=3
+
+# Mic/webcam access
+SupplementaryGroups=audio video
+
+[Install]
+WantedBy=multi-user.target

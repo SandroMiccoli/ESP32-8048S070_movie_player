@@ -1,0 +1,35 @@
+# WiFi Access Point created by install/setup_ap.sh
+# Must match WIFI_SSID / WIFI_PASSWORD in the ESP32 app_config.h
+wifi:
+  ssid: BOCAS-TELAS
+  password: bocas123
+  iface: wlan0
+  ip: 192.168.4.1
+  dhcp_start: 192.168.4.50
+  dhcp_end: 192.168.4.200
+
+# Audio capture
+# List devices with:  python -m sounddevice
+# Prefer a stable name substring over a numeric index (indexes can change across reboots).
+audio:
+  device: null          # null = default input, or index (int), or name substring (str)
+  sample_rate: 16000
+  channels: 1
+  block_ms: 50          # analysis window size
+  threshold_dbfs: -25.0 # trigger when level >= this (less negative = louder)
+  cooldown_s: 2.5       # ignore further triggers for this many seconds after publish
+
+# MQTT broker on the RPi access point (mqtt.host should match wifi.ip)
+mqtt:
+  host: 192.168.4.1
+  port: 1883
+  topic: displays/trigger
+  client_id: rpi-sound-trigger
+
+# On-screen VU meter (set enabled: false for headless install)
+display:
+  enabled: true
+  fullscreen: false
+  width: 800
+  height: 480
+  fps: 15

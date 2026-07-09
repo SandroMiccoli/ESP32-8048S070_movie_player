@@ -1,0 +1,5 @@
+# Keep shell scripts and Unix service units with LF on all platforms
+*.sh text eol=lf
+*.service text eol=lf
+rpi_sound_trigger/**/*.py text eol=lf
+rpi_sound_trigger/**/*.yaml text eol=lf

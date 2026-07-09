@@ -1,6 +1,8 @@
 # ESP32-8048S070 Movie Player
 
-Autoplay MJPEG videos from the microSD card on the Sunton/Jingcai **ESP32-8048S070** 7.0" board (800×480 RGB panel, ESP32-S3, 8 MB PSRAM). Optional synced **MP3** or **WAV** audio via the onboard NS4168 amplifier.
+MJPEG player for the Sunton/Jingcai **ESP32-8048S070** 7.0" board (800×480 RGB panel, ESP32-S3, OPI PSRAM). Optional synced **MP3** or **WAV** via the onboard NS4168 amplifier.
+
+By default the board joins a Raspberry Pi WiFi AP, subscribes to MQTT, loops **`idle.mjpeg`**, and switches to **`alert.mjpeg`** when the Pi mic app publishes a trigger. See [`rpi_sound_trigger/`](rpi_sound_trigger/) for the Pi side.
 
 ## Hardware
 
@@ -17,6 +19,7 @@ Autoplay MJPEG videos from the microSD card on the Sunton/Jingcai **ESP32-8048S0
 5. Install libraries:
   - [JPEGDEC](https://github.com/bitbank2/JPEGDEC) (1.8.4+)
   - [GFX Library for Arduino](https://github.com/moononournation/Arduino_GFX) — copy from `7.0inch_ESP32-8048S070/1-Demo/Demo_Arduino/Libraries/Arduino_GFX-master` or install from Library Manager
+  - [PubSubClient](https://github.com/knolleary/pubsubclient) (Nick O'Leary) — MQTT for RPi sound-trigger mode
 6. Open `ESP32-8048S070_movie_player.ino` and upload.
 
 **Important:** All sketch files must be in the same folder. Arduino IDE requires this layout:
@@ -29,8 +32,11 @@ ESP32-8048S070_movie_player/
   I2sPcmOutput.h
   WavPlayer.h
   Mp3Player.h
+  MqttCommand.h
+  MqttWifi.h
   minimp3.h
   minimp3.cpp
+  rpi_sound_trigger/          ← Raspberry Pi app (separate; not compiled by Arduino)
 ```
 
 Open the `.ino` file directly — do not nest it in a subfolder.
@@ -44,7 +50,21 @@ arduino-cli upload --profile esp32_8048s070 -p COMx ESP32-8048S070_movie_player
 
 ## SD card layout
 
-Create a folder named `mjpeg` at the root of the SD card and copy your video files there:
+With **MQTT trigger mode** enabled (`MQTT_TRIGGER_MODE` in `app_config.h`, default **on**), put two fixed clips on the card:
+
+```
+/mjpeg
+  idle.mjpeg     ← loops while waiting
+  idle.mp3       ← optional synced audio
+  alert.mjpeg    ← plays once when RPi publishes alert
+  alert.mp3      ← optional
+```
+
+On MQTT `{"state":"alert"}` every board aborts idle mid-play, plays `alert.mjpeg` once, then returns to looping idle. See [`rpi_sound_trigger/README.md`](rpi_sound_trigger/README.md) for the Pi Access Point, Mosquitto, and mic app.
+
+To restore the old behaviour (scan and play every `.mjpeg` in order), set `#define MQTT_TRIGGER_MODE false`.
+
+Legacy sequential layout (only when MQTT mode is off):
 
 ```
 /mjpeg
@@ -56,7 +76,19 @@ Create a folder named `mjpeg` at the root of the SD card and copy your video fil
 
 Supported extensions: `.mjpeg`, `.mjpg` (case-insensitive). Audio: same basename with `.mp3` (preferred) or `.wav`.
 
-The player scans `/mjpeg`, plays every video once, then loops forever.
+## WiFi + MQTT (multi-display)
+
+Defaults in `app_config.h` (must match the Pi AP scripts):
+
+| Setting | Default |
+|---------|---------|
+| `WIFI_SSID` / `WIFI_PASSWORD` | Must match `wifi.ssid` / `wifi.password` in `rpi_sound_trigger/config.yaml` (defaults: `ESP32-SHOW` / `showtime1`) |
+| `MQTT_HOST` | `192.168.4.1` |
+| `MQTT_TOPIC` | `displays/trigger` |
+| `MEDIA_IDLE_PATH` | `/mjpeg/idle.mjpeg` |
+| `MEDIA_ALERT_PATH` | `/mjpeg/alert.mjpeg` |
+
+All boards subscribe to the same topic, so one mic trigger updates every display at once.
 
 ## Video conversion
 
@@ -163,6 +195,9 @@ Edit `app_config.h` to change:
 | Setting      | Default            |
 | ------------ | ------------------ |
 | Video folder | `/mjpeg`           |
+| Idle clip    | `/mjpeg/idle.mjpeg` |
+| Alert clip   | `/mjpeg/alert.mjpeg` |
+| MQTT mode    | `true`             |
 | MJPEG buffer | 512 KB (PSRAM)     |
 | Frame slots  | 3 × 192 KB (PSRAM) |
 | SD SPI clock | 40 MHz             |
@@ -177,9 +212,10 @@ Edit `app_config.h` to change:
 | INSERT SD CARD    | No SD card detected                             |
 | NO /mjpeg FOLDER  | Create `/mjpeg` on the SD card                  |
 | NO MOVIES TO PLAY | Folder exists but has no `.mjpeg`/`.mjpg` files |
+| MISSING idle.mjpeg / alert.mjpeg | MQTT mode — copy those two files into `/mjpeg` |
 
 
-Serial output (115200 baud) logs playback stats per file.
+Serial output (115200 baud) logs playback stats per file, plus WiFi/MQTT connect lines when trigger mode is on.
 
 ## License
 
