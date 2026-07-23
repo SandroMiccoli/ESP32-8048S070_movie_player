@@ -57,7 +57,7 @@
 // #define LCD_VSYNC_BACK_PORCH 12
 
 #define LCD_PCLK_ACTIVE_NEG 1
-#define LCD_PCLK_HZ 12000000
+#define LCD_PCLK_HZ 8000000
 
 // Recommended when the framebuffer lives in PSRAM (ESP-IDF RGB LCD driver).
 #define LCD_BOUNCE_BUFFER_PX (LCD_WIDTH * 10)
@@ -101,7 +101,7 @@
 #define AUDIO_PLAYER_TASK_PRIORITY 10
 
 // Encoded MJPEG frame rate used for A/V sync (must match ffmpeg fps= value).
-#define MJPEG_FRAME_RATE 11
+#define MJPEG_FRAME_RATE 8
 
 // Max wait when video decode runs ahead of the audio clock.
 #define AV_SYNC_MAX_WAIT_MS 200

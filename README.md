@@ -94,45 +94,20 @@ All boards subscribe to the same topic, so one mic trigger updates every display
 
 Videos must be **MJPEG** (a stream of JPEG frames). Convert with ffmpeg.
 
-Playback speed is dominated by the **software JPEG decode**, which scales roughly with pixel count, so the encoded resolution is the main lever. Pick one of these presets depending on whether you want quality or smoothness (measured frame rates on this board, after the dual-core pipeline below):
+MJPEG has **no inter-frame compression**, so long clips get large quickly. File size is driven by **resolution × fps × JPEG quality (`-q:v`) × duration**. Higher `-q:v` = lower quality = smaller files (typical range ~2–31).
 
+Set `MJPEG_FRAME_RATE` in `app_config.h` to the same `fps=` value you encode with — A/V sync uses that constant.
 
-| Preset                     | ffmpeg `scale` | Approx. fps |
-| -------------------------- | -------------- | ----------- |
-| Full quality               | `800:480`      | ~10–11 fps  |
-| **Balanced (recommended)** | `640:384`      | ~14–15 fps  |
-| Smoothest                  | `480:288`      | ~24–25 fps  |
+### Long clips (working preset)
 
+For **~8–9 minute** videos, this balance keeps A/V sync usable and MJPEG around **~100 MB** at 640×384:
 
 ```bash
-# Full quality — native panel resolution
-ffmpeg -i input.mp4 -vf "scale=800:480:force_original_aspect_ratio=decrease,fps=12" -q:v 9 output.mjpeg
-
-# Balanced — recommended quality/smoothness trade-off
-ffmpeg -i input.mp4 -vf "scale=640:384:force_original_aspect_ratio=decrease,fps=12" -q:v 9 output_640.mjpeg
-
-# Smoothest — highest frame rate, upscaled (slightly soft) on the 800x480 panel
-ffmpeg -i input.mp4 -vf "scale=480:288:force_original_aspect_ratio=decrease,fps=12" -q:v 9 output_480.mjpeg
+# Long clip — 8 fps, low JPEG quality, compact MP3 (set MJPEG_FRAME_RATE to 8)
+ffmpeg -i input.mp4 -filter_complex "[0:v]scale=640:384:force_original_aspect_ratio=decrease,fps=8[v]" -map "[v]" -q:v 30 -an output.mjpeg -map 0:a? -c:a libmp3lame -ar 16000 -ac 1 -b:a 32k -shortest output.mp3
 ```
 
-Lower-resolution frames are centered on the panel (letterboxed at native size — no hardware upscaling), so they appear smaller/softer but decode much faster.
-
-### Audio extraction (synced to 12 fps MJPEG)
-
-The ESP32-8048S070 has an onboard **NS4168 I2S amplifier**.
-
-**Recommended: MP3** — much smaller than WAV, low SD bandwidth (stable with video). The player decodes MP3 on the fly with [minimp3](https://github.com/lieff/minimp3).
-
-**Optional: WAV** — 16-bit PCM mono at **16 kHz** or **8 kHz** (smaller). Large WAV files (>5 MB) stream from SD and may crash; prefer MP3 for long clips.
-
-Export MJPEG and audio in **one ffmpeg pass** with **`-shortest`**:
-
-```bash
-# Recommended — 12 fps MJPEG + compact MP3
-ffmpeg -i input.mp4 -filter_complex "[0:v]scale=640:384:force_original_aspect_ratio=decrease,fps=12[v]" -map "[v]" -q:v 9 -an output.mjpeg -map 0:a? -c:a libmp3lame -ar 16000 -ac 1 -b:a 32k -shortest output.mp3
-```
-
-Copy to the SD card as a matching pair:
+Copy to the SD card as a matching pair (`idle.mjpeg` / `alert.mjpeg` in MQTT mode):
 
 ```
 /mjpeg
@@ -142,7 +117,48 @@ Copy to the SD card as a matching pair:
 
 The player prefers `.mp3` over `.wav` when both exist.
 
-**Size guide** (4.5 min clip):
+### Higher-quality presets (shorter clips)
+
+Playback speed is dominated by **software JPEG decode**, which scales with pixel count. These presets target nicer picture / smoother motion; expect **much larger** files than the long-clip command above.
+
+| Preset | ffmpeg `scale` | Encode fps | `-q:v` | Notes |
+| ------ | -------------- | ---------- | ------ | ----- |
+| **Long clip (recommended for 8–9 min)** | `640:384` | **8** | **30** | ~100 MB for long videos; best size/sync trade-off |
+| Full quality | `800:480` | 12 | 9 | Native panel size; largest files |
+| Balanced short | `640:384` | 12 | 9 | Good quality for short clips |
+| Smoothest decode | `480:288` | 12 | 9 | Softest look; fastest decode on-device |
+
+Video-only examples (no audio):
+
+```bash
+# Full quality — native panel resolution
+ffmpeg -i input.mp4 -vf "scale=800:480:force_original_aspect_ratio=decrease,fps=12" -q:v 9 output.mjpeg
+
+# Balanced short — higher quality / smoother than the long-clip preset
+ffmpeg -i input.mp4 -vf "scale=640:384:force_original_aspect_ratio=decrease,fps=12" -q:v 9 output_640.mjpeg
+
+# Smoothest — highest frame rate on-device, upscaled (slightly soft) on the 800x480 panel
+ffmpeg -i input.mp4 -vf "scale=480:288:force_original_aspect_ratio=decrease,fps=12" -q:v 9 output_480.mjpeg
+```
+
+Same presets with synced MP3 (set `MJPEG_FRAME_RATE` to match `fps=`):
+
+```bash
+# Higher quality short clip — 12 fps + compact MP3
+ffmpeg -i input.mp4 -filter_complex "[0:v]scale=640:384:force_original_aspect_ratio=decrease,fps=12[v]" -map "[v]" -q:v 9 -an output.mjpeg -map 0:a? -c:a libmp3lame -ar 16000 -ac 1 -b:a 32k -shortest output.mp3
+```
+
+Lower-resolution frames are centered on the panel (letterboxed at native size — no hardware upscaling), so they appear smaller/softer but decode much faster.
+
+### Audio notes
+
+The ESP32-8048S070 has an onboard **NS4168 I2S amplifier**.
+
+**Recommended: MP3** — much smaller than WAV, low SD bandwidth (stable with video). The player decodes MP3 on the fly with [minimp3](https://github.com/lieff/minimp3).
+
+**Optional: WAV** — 16-bit PCM mono at **16 kHz** or **8 kHz** (smaller). Large WAV files (>5 MB) stream from SD and may crash; prefer MP3 for long clips.
+
+**Size guide** (audio only, ~4.5 min):
 
 | Format | Approx. size | Notes |
 | ------ | ------------ | ----- |
@@ -158,16 +174,17 @@ ffmpeg -i input.mp4 -filter_complex "[0:v]scale=640:384:force_original_aspect_ra
 
 `0:a?` skips audio when the source has no audio track. `-shortest` keeps audio the same length as the video.
 
-Tips for smoother playback:
+Tips:
 
 - Keep resolution at or below **800×480**.
-- Use **12–15 fps** for a good balance of quality and performance.
-- Lower `-q:v` (e.g. 11–13) if frames are too large or SD reads stutter (shrinks files).
+- For long videos, prefer **8 fps + high `-q:v` (e.g. 30)** over high-quality 12 fps encodes.
+- For short clips, **12 fps + `-q:v` 9–13** looks better if SD space allows.
+- Raise `-q:v` (e.g. 20–30) if files are too large or SD reads stutter.
 - You can also use the [Video Conversion Studio](https://thelastoutpostworkshop.github.io/video_conversion/) web tool.
 
 ## Performance notes
 
-The player overlaps work across both ESP32-S3 cores: a reader task (pinned to core 0) pulls complete JPEG frames off the SD card into a small ring of PSRAM buffers, while the loop core decodes and draws them. SD read time is therefore hidden behind decode time. Per-file serial output reports `wait` / `decode+draw` / `flush` milliseconds — `wait` near zero means decode is the bottleneck (expected); a large `wait` means the SD reader can't keep up (try a lower `-q:v`).
+The player overlaps work across both ESP32-S3 cores: a reader task (pinned to core 0) pulls complete JPEG frames off the SD card into a small ring of PSRAM buffers, while the loop core decodes and draws them. SD read time is therefore hidden behind decode time. Per-file serial output reports `wait` / `decode+draw` / `flush` milliseconds — `wait` near zero means decode is the bottleneck (expected); a large `wait` means the SD reader can't keep up (try a higher `-q:v` or lower resolution/fps).
 
 Pipeline tuning lives in `app_config.h` (`MJPEG_FRAME_SLOT_COUNT`, `MJPEG_FRAME_SLOT_BYTES`, and the `MJPEG_READER_TASK_`* settings).
 
