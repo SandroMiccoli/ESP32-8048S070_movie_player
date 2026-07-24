@@ -919,15 +919,28 @@ void setup()
   }
 
 #if MQTT_TRIGGER_MODE
-  showStatus("PLAYER READY", "WiFi + MQTT...");
+  showStatus("Waiting for WiFi...", WIFI_SSID);
   if (!startMqttWifiTask(g_playCommands))
   {
     showStatus("MQTT TASK FAILED", "SEE SERIAL LOG");
+    return;
   }
-  else
+
+  // Do not start video until WiFi + MQTT are online (avoids AUTH_EXPIRE under A/V load).
+  uint32_t lastPaintMs = 0;
+  while (!mqttWifiIsOnline())
   {
-    showStatus("PLAYER READY", "IDLE / ALERT MODE");
+    const uint32_t now = millis();
+    if (now - lastPaintMs >= 5000)
+    {
+      showStatus("Waiting for WiFi...", WIFI_SSID);
+      lastPaintMs = now;
+    }
+    delay(200);
   }
+
+  showStatus("WiFi connected", "STARTING...");
+  delay(800);
 #else
   showStatus("PLAYER READY", "READING /mjpeg");
 #endif

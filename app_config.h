@@ -131,8 +131,22 @@
 #define WIFI_SSID "BOCAS-TELAS"
 #define WIFI_PASSWORD "bocas123"
 #define WIFI_COUNTRY_CODE "BR"
-#define WIFI_CONNECT_TIMEOUT_MS 20000
-#define WIFI_RETRY_DELAY_MS 5000
+// Overall budget for one wifiEnsureConnected() call (includes several assoc attempts).
+#define WIFI_CONNECT_TIMEOUT_MS 90000
+#define WIFI_RETRY_DELAY_MS 10000
+// Wait-for-SSID before WiFi.begin (handles RPi AP coming up after the ESP).
+#define WIFI_SSID_WAIT_MS 60000
+#define WIFI_SSID_POLL_MS 3000
+// Soft radio reset (WIFI_OFF → STA) after this many consecutive connect failures.
+#define WIFI_RADIO_RESET_AFTER_FAILS 3
+// Assoc retries: keep these SLOW — Pi SoftAP ignores rapid re-auth (stale station).
+#define WIFI_ASSOC_ATTEMPT_MS 12000
+#define WIFI_ASSOC_RETRY_DELAY_MS 8000
+#define WIFI_ASSOC_MAX_ATTEMPTS 4
+// Stagger assoc across boards: (mac[5] % 5) * this many ms.
+#define WIFI_STAGGER_SLOT_MS 1500
+// ESP32-S3 boards often AUTH_EXPIRE at default TX power; 8.5 dBm is the common fix.
+#define WIFI_TX_POWER WIFI_POWER_8_5dBm
 
 #define MQTT_HOST "192.168.4.1"
 #define MQTT_PORT 1883

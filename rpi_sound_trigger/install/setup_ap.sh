@@ -118,7 +118,13 @@ driver=nl80211
 ssid=${SSID}
 hw_mode=g
 channel=6
-wmm_enabled=0
+beacon_int=100
+dtim_period=2
+max_num_sta=8
+# Clear stale ESP stations faster so power-cycle / re-auth is not ignored.
+ap_max_inactivity=20
+disassoc_low_ack=0
+wmm_enabled=1
 macaddr_acl=0
 auth_algs=1
 ignore_broadcast_ssid=0
