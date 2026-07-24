@@ -834,7 +834,9 @@ static bool sdFileExists(const char *path)
   return true;
 }
 
-// Loop idle.mjpeg forever; on MQTT alert, abort and play alert.mjpeg once.
+// On boot: play alert.mjpeg once, then loop idle.mjpeg; MQTT alert re-triggers the same.
+static bool s_bootAlertPending = true;
+
 static void playIdleAlertLoop()
 {
   if (!sdFileExists(MEDIA_IDLE_PATH))
@@ -845,6 +847,13 @@ static void playIdleAlertLoop()
   }
 
   bool wantAlert = false;
+  if (s_bootAlertPending)
+  {
+    wantAlert = true;
+    s_bootAlertPending = false;
+    Serial.println("Boot: playing alert once before idle loop");
+  }
+
   PlayCommand cmd;
   while (mqttCommandReceive(g_playCommands, cmd, 0))
   {
