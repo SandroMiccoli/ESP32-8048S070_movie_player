@@ -235,7 +235,7 @@ mosquitto_sub -h 127.0.0.1 -t 'displays/trigger' -v
 Terminal B — publish a fake alert:
 
 ```bash
-mosquitto_pub -h 127.0.0.1 -t 'displays/trigger' -m '{"state":"alert","ts":0}'
+mosquitto_pub -h 127.0.0.1 -t 'displays/trigger' -q 1 -m '{"state":"alert","ts":0}'
 ```
 
 Terminal A should print the message. If this fails, fix Mosquitto before testing the mic app.
@@ -279,7 +279,7 @@ Clap or yell past the threshold. You should see `[trigger] level=… dBFS publis
 | Field | Value |
 |-------|--------|
 | Topic | `displays/trigger` |
-| QoS | 0 |
+| QoS | 1 (at-least-once; Pi publish + ESP32 subscribe) |
 | Payload | `{"state":"alert","ts":<unix>,"level_dbfs":-12.3}` |
 
 ESP32s ignore unknown fields; only `state` is required. After playing `alert.mjpeg` once, each board returns to looping `idle.mjpeg`.
@@ -297,6 +297,7 @@ ESP32s ignore unknown fields; only `state` is required. After playing `alert.mjp
 | `audio.cooldown_s` | Ignore further triggers after a publish (default `2.5`) |
 | `audio.device` | `null`, device index, or name substring |
 | `mqtt.host` | Broker IP — usually the same as `wifi.ip` |
+| `mqtt.qos` | Publish QoS (default `1`; must match ESP32 `MQTT_QOS`) |
 | `display.mode` | `auto` (UI if screen connected), `always`, or `never` |
 | `display.fullscreen` | `null` = auto fullscreen when a screen is detected; `true`/`false` to force |
 | `display.sdl_driver` | Optional SDL override (`x11`, `wayland`, `kmsdrm`) |

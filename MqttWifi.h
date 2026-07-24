@@ -176,7 +176,6 @@ static void wifiLogScanForTargetSsid()
   wifiPrepareSta();
   Serial.println("WiFi: scanning for APs...");
   const int n = WiFi.scanNetworks(false, true);
-  WiFi.scanDelete();
   if (n < 0)
   {
     Serial.printf("WiFi: scan failed (%d) — radio busy, retry after next disconnect\n", n);
@@ -201,6 +200,7 @@ static void wifiLogScanForTargetSsid()
                   (WiFi.encryptionType(i) == WIFI_AUTH_OPEN) ? "open" : "secured",
                   isTarget ? " <-- target" : "");
   }
+  WiFi.scanDelete();
 
   if (!foundTarget)
   {
@@ -278,9 +278,12 @@ static bool mqttEnsureConnected()
     return true;
   }
 
+  // Full STA MAC — low 16 bits of getEfuseMac() are the OUI and collide across boards.
   char clientId[40];
-  uint64_t mac = ESP.getEfuseMac();
-  snprintf(clientId, sizeof(clientId), "%s%04X", MQTT_CLIENT_ID_PREFIX, (unsigned)(mac & 0xFFFF));
+  uint8_t mac[6];
+  WiFi.macAddress(mac);
+  snprintf(clientId, sizeof(clientId), "%s%02X%02X%02X%02X%02X%02X",
+           MQTT_CLIENT_ID_PREFIX, mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
 
   Serial.printf("MQTT connecting %s:%d as %s...\n", MQTT_HOST, MQTT_PORT, clientId);
   g_mqttClient.setServer(MQTT_HOST, MQTT_PORT);
@@ -290,8 +293,8 @@ static bool mqttEnsureConnected()
 
   if (g_mqttClient.connect(clientId))
   {
-    g_mqttClient.subscribe(MQTT_TOPIC, 0);
-    Serial.printf("MQTT subscribed to %s\n", MQTT_TOPIC);
+    g_mqttClient.subscribe(MQTT_TOPIC, MQTT_QOS);
+    Serial.printf("MQTT subscribed to %s qos=%u\n", MQTT_TOPIC, (unsigned)MQTT_QOS);
     return true;
   }
 
@@ -318,7 +321,7 @@ static void mqttWifiTask(void *param)
     }
 
     g_mqttClient.loop();
-    vTaskDelay(pdMS_TO_TICKS(20));
+    vTaskDelay(pdMS_TO_TICKS(MQTT_LOOP_DELAY_MS));
   }
 }
 

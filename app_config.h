@@ -138,11 +138,15 @@
 #define MQTT_PORT 1883
 #define MQTT_TOPIC "displays/trigger"
 #define MQTT_CLIENT_ID_PREFIX "esp32-display-"
+// QoS 1 (at-least-once). PubSubClient supports 0 or 1; must match Pi mqtt.qos.
+#define MQTT_QOS 1
 #define MQTT_TASK_STACK 6144
-#define MQTT_TASK_PRIORITY 1
+// Above MJPEG_READER_TASK_PRIORITY so loop()/PUBACK are not starved during SD read.
+#define MQTT_TASK_PRIORITY 3
 #define MQTT_TASK_CORE 0
 #define MQTT_RECONNECT_DELAY_MS 3000
 #define MQTT_KEEPALIVE_S 30
+#define MQTT_LOOP_DELAY_MS 10
 
 // ---------------------------------------------------------------------------
 // Dual-core pipeline — SD reading/framing runs on a task pinned to one core

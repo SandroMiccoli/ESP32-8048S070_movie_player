@@ -17,10 +17,12 @@ class MqttPublisher:
         port: int = 1883,
         topic: str = "displays/trigger",
         client_id: str = "rpi-sound-trigger",
+        qos: int = 1,
     ) -> None:
         self.host = host
         self.port = int(port)
         self.topic = topic
+        self.qos = 1 if int(qos) >= 1 else 0
         self._connected = False
         self._lock = threading.Lock()
         self._last_error = ""
@@ -76,7 +78,10 @@ class MqttPublisher:
         if level_dbfs is not None:
             payload["level_dbfs"] = round(float(level_dbfs), 1)
 
-        info = self._client.publish(self.topic, json.dumps(payload), qos=0, retain=False)
+        # QoS 1: broker retries until each connected subscriber ACKs delivery.
+        info = self._client.publish(
+            self.topic, json.dumps(payload), qos=self.qos, retain=False
+        )
         try:
             info.wait_for_publish(timeout=2.0)
             return bool(info.is_published())

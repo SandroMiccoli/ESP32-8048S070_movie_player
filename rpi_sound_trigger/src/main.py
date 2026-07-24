@@ -115,6 +115,7 @@ def main() -> int:
         port=int(mqtt_cfg.get("port", 1883)),
         topic=mqtt_cfg.get("topic", "displays/trigger"),
         client_id=mqtt_cfg.get("client_id", "rpi-sound-trigger"),
+        qos=int(mqtt_cfg.get("qos", 1)),
     )
 
     display: Optional[VuDisplay] = None
@@ -149,7 +150,7 @@ def main() -> int:
     use_display = resolve_use_display(disp_cfg, args.display, args.no_display)
 
     print(f"Config: {args.config}")
-    print(f"MQTT {publisher.host}:{publisher.port} topic={publisher.topic}")
+    print(f"MQTT {publisher.host}:{publisher.port} topic={publisher.topic} qos={publisher.qos}")
     print(f"Threshold {monitor.threshold_dbfs} dBFS, cooldown {monitor.cooldown_s}s")
     print(f"Display: {describe_display()}")
     print(f"UI mode: {'on-screen VU' if use_display else 'headless'}")

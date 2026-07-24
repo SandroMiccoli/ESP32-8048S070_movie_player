@@ -85,6 +85,7 @@ Defaults in `app_config.h` (must match the Pi AP scripts):
 | `WIFI_SSID` / `WIFI_PASSWORD` | Must match `wifi.ssid` / `wifi.password` in `rpi_sound_trigger/config.yaml` (defaults: `ESP32-SHOW` / `showtime1`) |
 | `MQTT_HOST` | `192.168.4.1` |
 | `MQTT_TOPIC` | `displays/trigger` |
+| `MQTT_QOS` | `1` (at-least-once; match Pi `mqtt.qos`) |
 | `MEDIA_IDLE_PATH` | `/mjpeg/idle.mjpeg` |
 | `MEDIA_ALERT_PATH` | `/mjpeg/alert.mjpeg` |
 

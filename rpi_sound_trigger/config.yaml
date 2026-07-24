@@ -25,6 +25,7 @@ mqtt:
   port: 1883
   topic: displays/trigger
   client_id: rpi-sound-trigger
+  qos: 1                 # at-least-once; must match ESP32 MQTT_QOS
 
 # On-screen VU meter
 # mode: auto   — show UI when a screen is connected, else headless (default)

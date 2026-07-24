@@ -43,4 +43,4 @@ fi
 echo
 echo "Smoke test (on this Pi):"
 echo "  mosquitto_sub -h 127.0.0.1 -t 'displays/trigger' -v"
-echo "  mosquitto_pub -h 127.0.0.1 -t 'displays/trigger' -m '{\"state\":\"alert\",\"ts\":0}'"
+echo "  mosquitto_pub -h 127.0.0.1 -t 'displays/trigger' -q 1 -m '{\"state\":\"alert\",\"ts\":0}'"
