@@ -1,15 +1,16 @@
 # RPi Sound Trigger
 
-Mic (webcam or USB) → volume threshold → MQTT `alert` for every ESP32 display on the Pi access point.
+Mic (**INMP441 I2S**, or USB/webcam) → volume threshold → MQTT `alert` for every ESP32 display on the Pi access point.
 
-Designed for **Raspberry Pi 3** on **Raspbian / Debian 13 (trixie)** with Python 3.
+Designed for **Raspberry Pi 3** on **Raspbian / Debian 13 (trixie)** with Python 3 (headless Lite is fine; HDMI VU is optional).
 
 ## Existing install — what to change
 
 Pull/sync these updated files onto the Pi, then:
 
-1. **`config.yaml`** — use `display.mode: auto` (already the default in the new config). Remove old `display.enabled` if you still have it.
-2. **Reinstall the systemd unit** (the old one forced `--no-display`):
+1. **INMP441** — wire the mic (see [step 4](#4-inmp441-i2s-microphone-recommended)), run `sudo bash install/setup_i2s_mic.sh`, reboot, then set `audio.device` / retune `threshold_dbfs` in `config.yaml` if needed.
+2. **`config.yaml`** — use `display.mode: auto` (already the default). Remove old `display.enabled` if you still have it. New audio defaults: `device: "voice"`, `sample_rate: 48000`, `channels: 2`.
+3. **Reinstall the systemd unit** (the old one forced `--no-display`):
 
 ```bash
 cd ~/ESP32-8048S070_movie_player/rpi_sound_trigger
@@ -19,7 +20,7 @@ sudo systemctl daemon-reload
 sudo systemctl restart sound-trigger.service
 ```
 
-3. **Screen + desktop** — plug in HDMI. On Pi OS with desktop, keep a logged-in session on `:0` (enable auto-login). On **Lite** (no desktop), set in `config.yaml`:
+4. **Screen + desktop** — plug in HDMI. On Pi OS with desktop, keep a logged-in session on `:0` (enable auto-login). On **Lite** (no desktop / headless), leave `display.mode: auto` (no UI) or set:
 
 ```yaml
 display:
@@ -27,11 +28,12 @@ display:
   sdl_driver: kmsdrm
 ```
 
-4. Confirm:
+5. Confirm:
 
 ```bash
 journalctl -u sound-trigger -f
-# Expect: Display: connected: HDMI-A-1   and   UI mode: on-screen VU
+# Headless (no HDMI): UI mode: headless
+# With HDMI: Display: connected: HDMI-A-1   and   UI mode: on-screen VU
 ```
 
 Unplug the screen (or boot without HDMI) and it should log `UI mode: headless`.
@@ -88,18 +90,47 @@ pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-### 4) Pick the mic / webcam
+### 4) INMP441 I2S microphone (recommended)
+
+Wire the module (**3.3 V only** — never 5 V):
+
+| INMP441 | Raspberry Pi | BCM / pin |
+|---------|--------------|-----------|
+| **VDD** | 3.3 V | Pin 1 or 17 |
+| **GND** | GND | any GND |
+| **SCK** | Bit clock | **GPIO 18** / pin 12 |
+| **WS** | Word select | **GPIO 19** / pin 35 |
+| **SD** | Data in | **GPIO 20** / pin 38 |
+| **L/R** | Left channel | **GND** (mono) |
+
+Enable the I2S overlay (edits `/boot/firmware/config.txt` on Trixie), then reboot:
 
 ```bash
+sudo bash install/setup_i2s_mic.sh
+sudo reboot
+```
+
+After reboot, confirm ALSA + Python see the card:
+
+```bash
+arecord -l
 source .venv/bin/activate
 python src/main.py --list-devices
 ```
 
-Edit `config.yaml` → `audio.device`:
+`config.yaml` defaults already target this mic:
 
-- `null` — default input
-- `"USB"` — name substring (preferred; stable across reboots)
-- `2` — numeric index (can change after reboot)
+```yaml
+audio:
+  device: "voice"      # substring of Google voiceHAT / I2S card name
+  sample_rate: 48000
+  channels: 2          # overlay is often stereo; app uses left (ch 0)
+  threshold_dbfs: -30.0
+```
+
+If `--list-devices` shows a different name, change `audio.device` to a stable substring of that name.
+
+**USB / webcam alternative:** skip `setup_i2s_mic.sh`, set `audio.device: "USB"` (or `null`), and retune `threshold_dbfs`.
 
 ### 5) WiFi AP for ESP32 clients (do this **after** pip works)
 
@@ -222,7 +253,7 @@ source .venv/bin/activate
 python src/main.py --list-devices
 ```
 
-Confirm your webcam/USB mic appears. Set `audio.device` in `config.yaml` if the default is wrong.
+Confirm the INMP441 I2S card (name often contains `voice` / `Google`) or your USB mic appears. Set `audio.device` in `config.yaml` if needed.
 
 ### 2) MQTT broker smoke test
 
@@ -266,7 +297,10 @@ Clap or yell past the threshold. You should see `[trigger] level=… dBFS publis
 | `libopenblas.so.0: cannot open shared object file` when running `main.py` | `sudo apt-get install -y libopenblas0-pthread` (or re-run `setup_python_deps.sh`, which includes it) |
 | `libopenblas0-pthread` not found | Try `sudo apt-get install -y libopenblas0` |
 | `pip install` fails while on the Pi AP only | Stop AP and reconnect to home WiFi: `sudo bash install/ap_toggle.sh off --wifi "HOME_SSID" --password "PASS"` |
-| Wrong mic / no audio | Run `--list-devices`, set `audio.device` to a name substring (e.g. `"USB"`) |
+| Wrong mic / no audio | Run `--list-devices`, set `audio.device` to a name substring (e.g. `"voice"` or `"USB"`) |
+| INMP441 not listed after wiring | Run `sudo bash install/setup_i2s_mic.sh`, reboot, check `arecord -l`; confirm 3.3 V / GPIO 18/19/20 / L/R→GND |
+| `Could not open audio input` | Try `sample_rate: 48000` and `channels: 2`; the app also auto-falls back across common rates/channels |
+| Levels stuck near silence | Wrong channel — keep L/R tied to GND; check solder/jumper wires; retune `threshold_dbfs` |
 | ESP32s don’t connect | Confirm `config.yaml` `wifi.ssid`/`password` match `app_config.h`; re-run `setup_ap.sh` after changes |
 | AP does not come up after reboot (`hostapd` failed/inactive) | Follow [step 6](#6-make-the-ap-start-reliably-on-every-boot-recommended); check `journalctl -u hostapd -b`. If you used `ap_toggle.sh off`, run `ap_toggle.sh on` again |
 | No VU on HDMI | Confirm cable/hotplug (`cat /sys/class/drm/*/status`); ensure desktop is logged in or set `display.sdl_driver: kmsdrm`; reinstall service without `--no-display` |
@@ -293,9 +327,11 @@ ESP32s ignore unknown fields; only `state` is required. After playing `alert.mjp
 | `wifi.ssid` | Access Point name (must match ESP32 `WIFI_SSID`) |
 | `wifi.password` | WPA2 passphrase, ≥ 8 chars (must match ESP32 `WIFI_PASSWORD`) |
 | `wifi.ip` | AP / MQTT host IP (default `192.168.4.1`) |
-| `audio.threshold_dbfs` | Trigger when level ≥ this (e.g. `-25`; louder ≈ closer to `0`) |
+| `audio.threshold_dbfs` | Trigger when level ≥ this (e.g. `-30`; louder ≈ closer to `0`) |
 | `audio.cooldown_s` | Ignore further triggers after a publish (default `2.5`) |
-| `audio.device` | `null`, device index, or name substring |
+| `audio.device` | `null`, device index, or name substring (`"voice"` for INMP441 / voiceHAT) |
+| `audio.sample_rate` | Capture rate (default `48000` for I2S; app falls back if unsupported) |
+| `audio.channels` | Capture channels (default `2` for I2S; level uses left / ch 0) |
 | `mqtt.host` | Broker IP — usually the same as `wifi.ip` |
 | `mqtt.qos` | Publish QoS (default `1`; must match ESP32 `MQTT_QOS`) |
 | `display.mode` | `auto` (UI if screen connected), `always`, or `never` |
@@ -313,7 +349,8 @@ Tune threshold with the VU bar: yell until the bar crosses the yellow line, then
 - Env vars `AP_SSID` / `AP_PASSWORD` still override the YAML when running the setup script.
 - AP IP from `wifi.ip` (default `192.168.4.1`) is the MQTT host used by the firmware.
 - MQTT anonymous access is intentional for an isolated local AP. Do not bridge this AP to the internet without adding authentication.
-- Webcam ALSA indexes can change after reboot — prefer a **name substring** in `config.yaml`.
+- Webcam / I2S ALSA indexes can change after reboot — prefer a **name substring** in `config.yaml`.
+- Default mic path is **INMP441 on I2S** (`install/setup_i2s_mic.sh` + `audio.device: "voice"`). USB/webcam still works by changing `audio.device`.
 
 ### Toggle AP ↔ home WiFi
 

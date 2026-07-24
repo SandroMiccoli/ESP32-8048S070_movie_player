@@ -128,10 +128,10 @@ def main() -> int:
 
     monitor = AudioMonitor(
         device=audio_cfg.get("device"),
-        sample_rate=int(audio_cfg.get("sample_rate", 16000)),
-        channels=int(audio_cfg.get("channels", 1)),
+        sample_rate=int(audio_cfg.get("sample_rate", 48000)),
+        channels=int(audio_cfg.get("channels", 2)),
         block_ms=int(audio_cfg.get("block_ms", 50)),
-        threshold_dbfs=float(audio_cfg.get("threshold_dbfs", -25.0)),
+        threshold_dbfs=float(audio_cfg.get("threshold_dbfs", -30.0)),
         cooldown_s=float(audio_cfg.get("cooldown_s", 2.5)),
         on_trigger=on_trigger,
     )

@@ -8,15 +8,15 @@ wifi:
   dhcp_start: 192.168.4.50
   dhcp_end: 192.168.4.200
 
-# Audio capture
-# List devices with:  python -m sounddevice
+# Audio capture (INMP441 I2S via install/setup_i2s_mic.sh, or USB/webcam)
+# List devices with:  python src/main.py --list-devices
 # Prefer a stable name substring over a numeric index (indexes can change across reboots).
 audio:
-  device: null          # null = default input, or index (int), or name substring (str)
-  sample_rate: 16000
-  channels: 1
+  device: "voice"       # INMP441 / Google voiceHAT card; null = default; "USB" for USB mic
+  sample_rate: 48000    # I2S overlays prefer 48 kHz; app falls back if unsupported
+  channels: 2           # voiceHAT often stereo; L/R→GND puts signal on left (ch 0)
   block_ms: 50          # analysis window size
-  threshold_dbfs: -25.0 # trigger when level >= this (less negative = louder)
+  threshold_dbfs: -30.0 # trigger when level >= this (less negative = louder); retune on device
   cooldown_s: 2.5       # ignore further triggers for this many seconds after publish
 
 # MQTT broker on the RPi access point (mqtt.host should match wifi.ip)
