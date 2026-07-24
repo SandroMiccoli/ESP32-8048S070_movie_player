@@ -1,7 +1,8 @@
-// Purpose: Shared I2S PCM output for the onboard NS4168 amplifier.
+// Purpose: Shared I2S PCM output for the onboard NS4168 amplifier (Speak / P6).
 #pragma once
 
 #include <Arduino.h>
+#include <driver/gpio.h>
 #include <driver/i2s_std.h>
 
 #include "app_config.h"
@@ -9,6 +10,27 @@
 class I2sPcmOutput
 {
 public:
+  // Drive BCLK/LRCLK/DOUT low so the NS4168 stays shut down (no speaker energy).
+  // Call as early as possible on boot; also used after every stop.
+  static void holdSilent()
+  {
+    tearDownChannel();
+
+    const gpio_num_t pins[] = {
+        (gpio_num_t)I2S_PIN_BCLK,
+        (gpio_num_t)I2S_PIN_LRCLK,
+        (gpio_num_t)I2S_PIN_DOUT,
+    };
+
+    for (gpio_num_t pin : pins)
+    {
+      gpio_reset_pin(pin);
+      gpio_set_direction(pin, GPIO_MODE_OUTPUT);
+      gpio_set_level(pin, 0);
+      gpio_set_pull_mode(pin, GPIO_FLOATING);
+    }
+  }
+
   static bool configure(uint32_t sampleRate)
   {
     if (!ensureChannel())
@@ -50,10 +72,8 @@ public:
 
   static void disable()
   {
-    if (txHandle != nullptr)
-    {
-      i2s_channel_disable(txHandle);
-    }
+    // Fully release I2S and clamp amp pins low — no clocks, no speaker drive.
+    holdSilent();
   }
 
   static bool write(const uint8_t *data, size_t len, size_t *written)
@@ -71,6 +91,20 @@ public:
   }
 
 private:
+  static void tearDownChannel()
+  {
+    if (txHandle == nullptr)
+    {
+      return;
+    }
+
+    i2s_channel_disable(txHandle);
+    i2s_del_channel(txHandle);
+    txHandle = nullptr;
+    configuredRate = 0;
+    channelReady = false;
+  }
+
   static bool ensureChannel()
   {
     if (txHandle != nullptr)

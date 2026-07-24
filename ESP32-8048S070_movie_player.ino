@@ -12,6 +12,7 @@
 #include <Arduino_GFX_Library.h>
 
 #include "app_config.h"
+#include "I2sPcmOutput.h"
 #include "MjpegClass.h"
 #include "WavPlayer.h"
 #include "Mp3Player.h"
@@ -573,7 +574,7 @@ static int jpegDrawCallback(JPEGDRAW *pDraw)
   return 1;
 }
 
-static bool playMjpegOnce(const char *path)
+static bool playMjpegOnce(const char *path, bool enableAudio = true)
 {
   if (!initMjpegBuffer() || !initFrameSlots())
   {
@@ -625,7 +626,12 @@ static bool playMjpegOnce(const char *path)
     xQueueSend(freeSlotQueue, &i, 0);
   }
 
-  if (!startCompanionAudio(path, wavPlayer, mp3Player, sdCardMutex))
+  if (!enableAudio)
+  {
+    Serial.println("Playing video only (audio disabled for this clip)");
+    Serial.flush();
+  }
+  else if (!startCompanionAudio(path, wavPlayer, mp3Player, sdCardMutex))
   {
     Serial.println("Playing video only (no audio)");
     Serial.flush();
@@ -847,9 +853,11 @@ static void playIdleAlertLoop()
   }
 
   bool wantAlert = false;
+  bool isBootAlert = false;
   if (s_bootAlertPending)
   {
     wantAlert = true;
+    isBootAlert = true;
     s_bootAlertPending = false;
     Serial.println("Boot: playing alert once before idle loop");
   }
@@ -872,11 +880,12 @@ static void playIdleAlertLoop()
       delay(500);
       return;
     }
+    const bool enableAudio = isBootAlert ? AUDIO_ON_BOOT_ALERT : AUDIO_ON_MQTT_ALERT;
     Serial.print("Playing alert: ");
     Serial.println(MEDIA_ALERT_PATH);
     mqttCommandClearAbort(g_playCommands);
     g_playCommands.playingAlert = true;
-    playMjpegOnce(MEDIA_ALERT_PATH);
+    playMjpegOnce(MEDIA_ALERT_PATH, enableAudio);
     g_playCommands.playingAlert = false;
     while (mqttCommandReceive(g_playCommands, cmd, 0))
     {
@@ -888,15 +897,20 @@ static void playIdleAlertLoop()
   Serial.print("Playing idle: ");
   Serial.println(MEDIA_IDLE_PATH);
   g_playCommands.playingAlert = false;
-  playMjpegOnce(MEDIA_IDLE_PATH);
+  playMjpegOnce(MEDIA_IDLE_PATH, AUDIO_ON_IDLE);
 }
 #endif
 
 void setup()
 {
+  // Speak (P6) → NS4168 on GPIO0/17/18. Clamp I2S lines low immediately so the
+  // Class-D amp stays off (no speaker energy / inrush) until first idle audio.
+  I2sPcmOutput::holdSilent();
+
   Serial.begin(115200);
   delay(500);
   Serial.println("ESP32-8048S070 MJPEG PLAYER INIT...");
+  Serial.println("Amp held silent (I2S pins low until first audio play)");
   printResetReason();
 
   if (!verifyPsramForDisplay())

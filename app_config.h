@@ -75,7 +75,9 @@
 #define SD_SPI_FREQ_AV_HZ 20000000
 
 // ---------------------------------------------------------------------------
-// I2S audio — onboard NS4168 (ESP32-8048S070 v1.4; v1.0 boards may need BCLK=19)
+// I2S audio — onboard NS4168 → Speak connector P6
+// (ESP32-8048S070 v1.4; v1.0 boards may need BCLK=19)
+// Pins are held OUTPUT LOW from boot until the first audio start.
 // ---------------------------------------------------------------------------
 
 #define I2S_PIN_BCLK 0
@@ -122,6 +124,12 @@
 // When true, loop idle.mjpeg and switch to alert.mjpeg on MQTT "alert".
 // When false, keep the legacy sequential scan of every .mjpeg in /mjpeg.
 #define MQTT_TRIGGER_MODE true
+
+// Companion audio (I2S / NS4168) per clip type. Boot alert stays silent so many
+// screens powering on together do not all enable the amp at once.
+#define AUDIO_ON_BOOT_ALERT false
+#define AUDIO_ON_IDLE true
+#define AUDIO_ON_MQTT_ALERT true
 
 // ---------------------------------------------------------------------------
 // WiFi STA + MQTT (RPi Access Point + Mosquitto)
