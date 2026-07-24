@@ -19,7 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from audio_monitor import AudioMonitor, list_input_devices
 from display_detect import describe_display, screen_available
 from mqtt_publisher import MqttPublisher
-from vu_display import VuDisplay
+from vu_display import BocaVolume, VuDisplay
 
 
 def load_config(path: Path) -> dict:
@@ -109,6 +109,7 @@ def main() -> int:
     audio_cfg = cfg.get("audio", {})
     mqtt_cfg = cfg.get("mqtt", {})
     disp_cfg = cfg.get("display", {})
+    vol_cfg = cfg.get("volumes", {})
 
     publisher = MqttPublisher(
         host=mqtt_cfg.get("host", "192.168.4.1"),
@@ -117,6 +118,25 @@ def main() -> int:
         client_id=mqtt_cfg.get("client_id", "rpi-sound-trigger"),
         qos=int(mqtt_cfg.get("qos", 1)),
     )
+
+    default_vol = int(vol_cfg.get("default", 80))
+    bocas: list[BocaVolume] = []
+    for entry in vol_cfg.get("bocas") or []:
+        boca_id = int(entry.get("id", len(bocas) + 1))
+        bocas.append(
+            BocaVolume(
+                id=boca_id,
+                label=str(entry.get("label", f"BOCA {boca_id}")),
+                topic=str(entry.get("topic", f"displays/boca{boca_id}/volume")),
+                percent=int(entry.get("volume", default_vol)),
+            )
+        )
+    if not bocas:
+        bocas = [
+            BocaVolume(1, "BOCA 1", "displays/boca1/volume", default_vol),
+            BocaVolume(2, "BOCA 2", "displays/boca2/volume", default_vol),
+            BocaVolume(3, "BOCA 3", "displays/boca3/volume", default_vol),
+        ]
 
     display: Optional[VuDisplay] = None
 
@@ -176,6 +196,7 @@ def main() -> int:
             fps=int(disp_cfg.get("fps", 15)),
             fullscreen=fullscreen,
             threshold_dbfs=monitor.threshold_dbfs,
+            bocas=bocas,
         )
         try:
             display.run()

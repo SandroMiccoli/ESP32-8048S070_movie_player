@@ -159,6 +159,18 @@
 #define MQTT_HOST "192.168.4.1"
 #define MQTT_PORT 1883
 #define MQTT_TOPIC "displays/trigger"
+// Which BOCA this board is (1, 2, or 3). Must match rpi_sound_trigger volumes.bocas[].id
+// Flash each physical screen with a unique id — only DISPLAY_ID needs changing.
+#define DISPLAY_ID 1
+#if DISPLAY_ID == 1
+#define MQTT_VOLUME_TOPIC "displays/boca1/volume"
+#elif DISPLAY_ID == 2
+#define MQTT_VOLUME_TOPIC "displays/boca2/volume"
+#elif DISPLAY_ID == 3
+#define MQTT_VOLUME_TOPIC "displays/boca3/volume"
+#else
+#error "DISPLAY_ID must be 1, 2, or 3"
+#endif
 #define MQTT_CLIENT_ID_PREFIX "esp32-display-"
 // QoS 1 (at-least-once). PubSubClient supports 0 or 1; must match Pi mqtt.qos.
 #define MQTT_QOS 1
@@ -169,6 +181,8 @@
 #define MQTT_RECONNECT_DELAY_MS 3000
 #define MQTT_KEEPALIVE_S 30
 #define MQTT_LOOP_DELAY_MS 10
+// Default speaker level until the Pi sends a retained volume message (0–100).
+#define AUDIO_VOLUME_PERCENT_DEFAULT 80
 
 // ---------------------------------------------------------------------------
 // Dual-core pipeline — SD reading/framing runs on a task pinned to one core

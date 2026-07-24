@@ -70,6 +70,22 @@ class MqttPublisher:
         with self._lock:
             self._connected = False
 
+    def _publish_json(
+        self, topic: str, payload: dict, retain: bool = False, wait: bool = True
+    ) -> bool:
+        info = self._client.publish(
+            topic, json.dumps(payload), qos=self.qos, retain=retain
+        )
+        if not wait:
+            return True
+        try:
+            info.wait_for_publish(timeout=2.0)
+            return bool(info.is_published())
+        except Exception as exc:
+            with self._lock:
+                self._last_error = str(exc)
+            return False
+
     def publish_alert(self, level_dbfs: Optional[float] = None) -> bool:
         payload = {
             "state": "alert",
@@ -79,13 +95,14 @@ class MqttPublisher:
             payload["level_dbfs"] = round(float(level_dbfs), 1)
 
         # QoS 1: broker retries until each connected subscriber ACKs delivery.
-        info = self._client.publish(
-            self.topic, json.dumps(payload), qos=self.qos, retain=False
-        )
-        try:
-            info.wait_for_publish(timeout=2.0)
-            return bool(info.is_published())
-        except Exception as exc:
-            with self._lock:
-                self._last_error = str(exc)
-            return False
+        return self._publish_json(self.topic, payload, retain=False, wait=True)
+
+    def publish_volume(self, topic: str, percent: int, retain: bool = True) -> bool:
+        """Publish 0–100 volume for one BOCA display. Retained so late joiners pick it up."""
+        pct = max(0, min(100, int(percent)))
+        payload = {
+            "volume": pct,
+            "ts": int(time.time()),
+        }
+        # Non-blocking: slider drags must stay snappy on the touch UI.
+        return self._publish_json(topic, payload, retain=retain, wait=False)

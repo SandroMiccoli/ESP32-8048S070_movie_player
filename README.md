@@ -86,10 +86,11 @@ Defaults in `app_config.h` (must match the Pi AP scripts):
 | `MQTT_HOST` | `192.168.4.1` |
 | `MQTT_TOPIC` | `displays/trigger` |
 | `MQTT_QOS` | `1` (at-least-once; match Pi `mqtt.qos`) |
+| `DISPLAY_ID` | `1`, `2`, or `3` — flash uniquely per board for BOCA volume sliders |
 | `MEDIA_IDLE_PATH` | `/mjpeg/idle.mjpeg` |
 | `MEDIA_ALERT_PATH` | `/mjpeg/alert.mjpeg` |
 
-All boards subscribe to the same topic, so one mic trigger updates every display at once.
+All boards subscribe to the same trigger topic, so one mic event updates every display at once. Volume is per-board via `displays/bocaN/volume` (see `rpi_sound_trigger/README.md`).
 
 ## Video conversion
 

@@ -82,7 +82,83 @@ public:
     {
       return false;
     }
-    return i2s_channel_write(txHandle, data, len, written, portMAX_DELAY) == ESP_OK;
+
+    const uint8_t vol = volumePercent;
+    if (vol >= 100)
+    {
+      return i2s_channel_write(txHandle, data, len, written, portMAX_DELAY) == ESP_OK;
+    }
+    if (vol == 0)
+    {
+      // Keep stream timing with silence so A/V sync still advances.
+      static uint8_t silence[512];
+      size_t total = 0;
+      while (total < len)
+      {
+        const size_t chunk = (len - total) > sizeof(silence) ? sizeof(silence) : (len - total);
+        size_t w = 0;
+        if (i2s_channel_write(txHandle, silence, chunk, &w, portMAX_DELAY) != ESP_OK)
+        {
+          if (written)
+          {
+            *written = total;
+          }
+          return false;
+        }
+        total += w;
+      }
+      if (written)
+      {
+        *written = total;
+      }
+      return true;
+    }
+
+    // Scale 16-bit mono PCM through a small stack buffer.
+    int16_t scaled[128];
+    size_t total = 0;
+    const int16_t *src = reinterpret_cast<const int16_t *>(data);
+    const size_t sampleCount = len / sizeof(int16_t);
+    size_t samplePos = 0;
+    while (samplePos < sampleCount)
+    {
+      const size_t n =
+          (sampleCount - samplePos) > 128 ? 128 : (sampleCount - samplePos);
+      for (size_t i = 0; i < n; ++i)
+      {
+        scaled[i] = static_cast<int16_t>((static_cast<int32_t>(src[samplePos + i]) * vol) / 100);
+      }
+      size_t w = 0;
+      if (i2s_channel_write(txHandle, scaled, n * sizeof(int16_t), &w, portMAX_DELAY) != ESP_OK)
+      {
+        if (written)
+        {
+          *written = total;
+        }
+        return false;
+      }
+      total += w;
+      samplePos += n;
+    }
+    if (written)
+    {
+      *written = total;
+    }
+    return true;
+  }
+
+  static void setVolumePercent(uint8_t percent)
+  {
+    if (percent > 100)
+    {
+      percent = 100;
+    }
+    volumePercent = percent;
+  }
+
+  static uint8_t getVolumePercent()
+  {
+    return volumePercent;
   }
 
   static bool ready()
@@ -157,8 +233,10 @@ private:
   static i2s_chan_handle_t txHandle;
   static uint32_t configuredRate;
   static bool channelReady;
+  static volatile uint8_t volumePercent;
 };
 
 i2s_chan_handle_t I2sPcmOutput::txHandle = nullptr;
 uint32_t I2sPcmOutput::configuredRate = 0;
 bool I2sPcmOutput::channelReady = false;
+volatile uint8_t I2sPcmOutput::volumePercent = AUDIO_VOLUME_PERCENT_DEFAULT;

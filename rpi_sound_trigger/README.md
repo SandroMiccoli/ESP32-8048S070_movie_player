@@ -8,9 +8,8 @@ Designed for **Raspberry Pi 3** on **Raspbian / Debian 13 (trixie)** with Python
 
 Pull/sync these updated files onto the Pi, then:
 
-1. **INMP441** — wire the mic (see [step 4](#4-inmp441-i2s-microphone-recommended)), run `sudo bash install/setup_i2s_mic.sh`, reboot, then set `audio.device` / retune `threshold_dbfs` in `config.yaml` if needed.
-2. **`config.yaml`** — use `display.mode: auto` (already the default). Remove old `display.enabled` if you still have it. New audio defaults: `device: "voice"`, `sample_rate: 48000`, `channels: 2`.
-3. **Reinstall the systemd unit** (the old one forced `--no-display`):
+1. `**config.yaml**` — use `display.mode: auto` (already the default in the new config). Remove old `display.enabled` if you still have it.
+2. **Reinstall the systemd unit** (the old one forced `--no-display`):
 
 ```bash
 cd ~/ESP32-8048S070_movie_player/rpi_sound_trigger
@@ -20,7 +19,7 @@ sudo systemctl daemon-reload
 sudo systemctl restart sound-trigger.service
 ```
 
-4. **Screen + desktop** — plug in HDMI. On Pi OS with desktop, keep a logged-in session on `:0` (enable auto-login). On **Lite** (no desktop / headless), leave `display.mode: auto` (no UI) or set:
+1. **Screen + desktop** — plug in HDMI. On Pi OS with desktop, keep a logged-in session on `:0` (enable auto-login). On **Lite** (no desktop), set in `config.yaml`:
 
 ```yaml
 display:
@@ -28,17 +27,18 @@ display:
   sdl_driver: kmsdrm
 ```
 
-5. Confirm:
+1. Confirm:
 
 ```bash
 journalctl -u sound-trigger -f
-# Headless (no HDMI): UI mode: headless
-# With HDMI: Display: connected: HDMI-A-1   and   UI mode: on-screen VU
+# Expect: Display: connected: HDMI-A-1   and   UI mode: on-screen VU
 ```
 
 Unplug the screen (or boot without HDMI) and it should log `UI mode: headless`.
 
 ---
+
+
 
 ## Architecture
 
@@ -49,6 +49,8 @@ Unplug the screen (or boot without HDMI) and it should log `UI mode: headless`.
 
 ---
 
+
+
 ## Quick install (on the Pi)
 
 Do the Python/`apt` steps while the Pi has **internet** (home WiFi). The AP is isolated and blocks package downloads — set it up **last** (or stop it temporarily; see [Toggle AP ↔ home WiFi](#toggle-ap--home-wifi)).
@@ -58,6 +60,8 @@ Do the Python/`apt` steps while the Pi has **internet** (home WiFi). The AP is i
 cd ~/ESP32-8048S070_movie_player/rpi_sound_trigger
 # or: cd ~/rpi_sound_trigger
 ```
+
+
 
 ### 0) Edit WiFi credentials (before AP setup)
 
@@ -81,6 +85,8 @@ Installs build headers, PortAudio, SDL, and `libopenblas0-pthread` (required by 
 sudo bash install/setup_mqtt.sh
 ```
 
+
+
 ### 3) Python virtualenv
 
 ```bash
@@ -90,18 +96,28 @@ pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
+
+
 ### 4) INMP441 I2S microphone (recommended)
 
 Wire the module (**3.3 V only** — never 5 V):
 
-| INMP441 | Raspberry Pi | BCM / pin |
-|---------|--------------|-----------|
-| **VDD** | 3.3 V | Pin 1 or 17 |
-| **GND** | GND | any GND |
-| **SCK** | Bit clock | **GPIO 18** / pin 12 |
-| **WS** | Word select | **GPIO 19** / pin 35 |
-| **SD** | Data in | **GPIO 20** / pin 38 |
-| **L/R** | Left channel | **GND** (mono) |
+
+| INMP441 | Raspberry Pi | BCM / pin            |
+| ------- | ------------ | -------------------- |
+| **VDD** | 3.3 V        | Pin 1 or 17          |
+| **GND** | GND          | any GND              |
+| **SCK** | Bit clock    | **GPIO 18** / pin 12 |
+| **WS**  | Word select  | **GPIO 19** / pin 35 |
+| **SD**  | Data in      | **GPIO 20** / pin 38 |
+| **L/R** | Left channel | **GND** (mono)       |
+
+
+
+
+
+
+![RPi3_GPIO](RPi3_GPIO_diagram.jpg)
 
 Enable the I2S overlay (edits `/boot/firmware/config.txt` on Trixie), then reboot:
 
@@ -143,6 +159,8 @@ Reads `wifi.*` from `config.yaml`. Env overrides still work:
 ```bash
 sudo AP_SSID=MinhaRede AP_PASSWORD=minhasenha bash install/setup_ap.sh
 ```
+
+
 
 ### 6) Make the AP start reliably on every boot (recommended)
 
@@ -195,6 +213,8 @@ sudo systemctl enable --now sound-trigger.service
 
 ---
 
+
+
 ## How to run
 
 Always activate the venv first:
@@ -204,18 +224,33 @@ cd ~/ESP32-8048S070_movie_player/rpi_sound_trigger   # or your clone path
 source .venv/bin/activate
 ```
 
+
+
 ### Normal (auto UI / headless)
 
 By default the app **detects a connected screen** (HDMI/DSI via DRM):
 
-- **Screen connected** → fullscreen VU meter with live mic amplitude
+- **Screen connected** → fullscreen touch UI with live mic amplitude
 - **No screen** → headless terminal readout
 
 ```bash
 python src/main.py
 ```
 
-Yell into the mic and watch the bar cross the yellow threshold line. Tune `audio.threshold_dbfs` in `config.yaml` to sit just below your peak.
+The touch UI is black on white, Consolas, in three bands:
+
+- **Header** — `BOCAS` left, live `HH:MM:SS` clock right
+- **Meter** — `Level: … dBFS` and the yellow `threshold … dBFS` above the bar; the bar is **green below the threshold and red once it crosses**. Drag the yellow marker (anywhere on the bar) to retune sensitivity live.
+- **Status row** — `Last trigger: …` left, `MQTT Status:` right (green `Connected` / red `Disconnected`)
+- **Volume** — three vertical sliders, `BOCA 1/2/3` labelled above, percentage at the handle; dragging publishes to that board’s MQTT volume topic
+
+### Preview the UI layout without a Pi
+
+Renders PNGs of the interface (no mic, no broker, no screen needed):
+
+```bash
+python tools/render_preview.py          # writes tools/preview/*.png
+```
 
 ### Force modes
 
@@ -224,11 +259,15 @@ python src/main.py --display      # always open the VU UI
 python src/main.py --no-display   # always headless
 ```
 
+
+
 ### Custom config path
 
 ```bash
 python src/main.py -c /path/to/config.yaml
 ```
+
+
 
 ### Systemd (production)
 
@@ -241,6 +280,8 @@ journalctl -u sound-trigger -f
 The service starts **without** `--no-display`, so HDMI shows the VU automatically. If your username is not `pi` or the project path differs, edit `install/sound-trigger.service` before copying it.
 
 ---
+
+
 
 ## Simple tests
 
@@ -289,68 +330,99 @@ Clap or yell past the threshold. You should see `[trigger] level=… dBFS publis
 
 ---
 
+
+
 ## Troubleshooting
 
-| Symptom | Fix |
-|---------|-----|
-| `Python.h: No such file` or `Package libffi was not found` during `pip install` | Skipped step 1 — run `sudo bash install/setup_python_deps.sh` and retry `pip install -r requirements.txt` |
-| `libopenblas.so.0: cannot open shared object file` when running `main.py` | `sudo apt-get install -y libopenblas0-pthread` (or re-run `setup_python_deps.sh`, which includes it) |
-| `libopenblas0-pthread` not found | Try `sudo apt-get install -y libopenblas0` |
-| `pip install` fails while on the Pi AP only | Stop AP and reconnect to home WiFi: `sudo bash install/ap_toggle.sh off --wifi "HOME_SSID" --password "PASS"` |
-| Wrong mic / no audio | Run `--list-devices`, set `audio.device` to a name substring (e.g. `"voice"` or `"USB"`) |
-| INMP441 not listed after wiring | Run `sudo bash install/setup_i2s_mic.sh`, reboot, check `arecord -l`; confirm 3.3 V / GPIO 18/19/20 / L/R→GND |
-| `Could not open audio input` | Try `sample_rate: 48000` and `channels: 2`; the app also auto-falls back across common rates/channels |
-| Levels stuck near silence | Wrong channel — keep L/R tied to GND; check solder/jumper wires; retune `threshold_dbfs` |
-| ESP32s don’t connect | Confirm `config.yaml` `wifi.ssid`/`password` match `app_config.h`; re-run `setup_ap.sh` after changes |
-| AP does not come up after reboot (`hostapd` failed/inactive) | Follow [step 6](#6-make-the-ap-start-reliably-on-every-boot-recommended); check `journalctl -u hostapd -b`. If you used `ap_toggle.sh off`, run `ap_toggle.sh on` again |
-| No VU on HDMI | Confirm cable/hotplug (`cat /sys/class/drm/*/status`); ensure desktop is logged in or set `display.sdl_driver: kmsdrm`; reinstall service without `--no-display` |
-| VU fails under systemd | Check `DISPLAY=:0` / `XAUTHORITY` / uid in `XDG_RUNTIME_DIR` match your user; user must be in `video`/`render` groups |
+
+| Symptom                                                                         | Fix                                                                                                                                                                     |
+| ------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Python.h: No such file` or `Package libffi was not found` during `pip install` | Skipped step 1 — run `sudo bash install/setup_python_deps.sh` and retry `pip install -r requirements.txt`                                                               |
+| `libopenblas.so.0: cannot open shared object file` when running `main.py`       | `sudo apt-get install -y libopenblas0-pthread` (or re-run `setup_python_deps.sh`, which includes it)                                                                    |
+| `libopenblas0-pthread` not found                                                | Try `sudo apt-get install -y libopenblas0`                                                                                                                              |
+| `pip install` fails while on the Pi AP only                                     | Stop AP and reconnect to home WiFi: `sudo bash install/ap_toggle.sh off --wifi "HOME_SSID" --password "PASS"`                                                           |
+| Wrong mic / no audio                                                            | Run `--list-devices`, set `audio.device` to a name substring (e.g. `"voice"` or `"USB"`)                                                                                |
+| INMP441 not listed after wiring                                                 | Run `sudo bash install/setup_i2s_mic.sh`, reboot, check `arecord -l`; confirm 3.3 V / GPIO 18/19/20 / L/R→GND                                                           |
+| `Could not open audio input`                                                    | Try `sample_rate: 48000` and `channels: 2`; the app also auto-falls back across common rates/channels                                                                   |
+| Levels stuck near silence                                                       | Wrong channel — keep L/R tied to GND; check solder/jumper wires; retune `threshold_dbfs`                                                                                |
+| ESP32s don’t connect                                                            | Confirm `config.yaml` `wifi.ssid`/`password` match `app_config.h`; re-run `setup_ap.sh` after changes                                                                   |
+| AP does not come up after reboot (`hostapd` failed/inactive)                    | Follow [step 6](#6-make-the-ap-start-reliably-on-every-boot-recommended); check `journalctl -u hostapd -b`. If you used `ap_toggle.sh off`, run `ap_toggle.sh on` again |
+| No VU on HDMI                                                                   | Confirm cable/hotplug (`cat /sys/class/drm/*/status`); ensure desktop is logged in or set `display.sdl_driver: kmsdrm`; reinstall service without `--no-display`        |
+| VU fails under systemd                                                          | Check `DISPLAY=:0` / `XAUTHORITY` / uid in `XDG_RUNTIME_DIR` match your user; user must be in `video`/`render` groups                                                   |
+
 
 ---
+
+
 
 ## MQTT contract
 
-| Field | Value |
-|-------|--------|
-| Topic | `displays/trigger` |
-| QoS | 1 (at-least-once; Pi publish + ESP32 subscribe) |
+
+| Field   | Value                                              |
+| ------- | -------------------------------------------------- |
+| Topic   | `displays/trigger`                                 |
+| QoS     | 1 (at-least-once; Pi publish + ESP32 subscribe)    |
 | Payload | `{"state":"alert","ts":<unix>,"level_dbfs":-12.3}` |
+
 
 ESP32s ignore unknown fields; only `state` is required. After playing `alert.mjpeg` once, each board returns to looping `idle.mjpeg`.
 
+### Per-display volume
+
+
+| Field   | Value                                                         |
+| ------- | ------------------------------------------------------------- |
+| Topic   | `displays/boca1/volume` … `displays/boca3/volume`             |
+| QoS     | 1                                                             |
+| Retain  | yes (late-joining boards pick up the last slider value)       |
+| Payload | `{"volume":75,"ts":<unix>}` — `volume` is 0–100               |
+
+
+On each ESP32, set `DISPLAY_ID` to `1`, `2`, or `3` in `app_config.h` before flashing so the board subscribes to the matching topic. The Pi touch UI sliders **BOCA 1 / 2 / 3** publish to these topics.
+
 ---
+
+
 
 ## Config (`config.yaml`)
 
-| Key | Meaning |
-|-----|---------|
-| `wifi.ssid` | Access Point name (must match ESP32 `WIFI_SSID`) |
-| `wifi.password` | WPA2 passphrase, ≥ 8 chars (must match ESP32 `WIFI_PASSWORD`) |
-| `wifi.ip` | AP / MQTT host IP (default `192.168.4.1`) |
-| `audio.threshold_dbfs` | Trigger when level ≥ this (e.g. `-30`; louder ≈ closer to `0`) |
-| `audio.cooldown_s` | Ignore further triggers after a publish (default `2.5`) |
-| `audio.device` | `null`, device index, or name substring (`"voice"` for INMP441 / voiceHAT) |
-| `audio.sample_rate` | Capture rate (default `48000` for I2S; app falls back if unsupported) |
-| `audio.channels` | Capture channels (default `2` for I2S; level uses left / ch 0) |
-| `mqtt.host` | Broker IP — usually the same as `wifi.ip` |
-| `mqtt.qos` | Publish QoS (default `1`; must match ESP32 `MQTT_QOS`) |
-| `display.mode` | `auto` (UI if screen connected), `always`, or `never` |
-| `display.fullscreen` | `null` = auto fullscreen when a screen is detected; `true`/`false` to force |
-| `display.sdl_driver` | Optional SDL override (`x11`, `wayland`, `kmsdrm`) |
 
-Tune threshold with the VU bar: yell until the bar crosses the yellow line, then set `threshold_dbfs` a little below that peak.
+| Key                    | Meaning                                                                     |
+| ---------------------- | --------------------------------------------------------------------------- |
+| `wifi.ssid`            | Access Point name (must match ESP32 `WIFI_SSID`)                            |
+| `wifi.password`        | WPA2 passphrase, ≥ 8 chars (must match ESP32 `WIFI_PASSWORD`)               |
+| `wifi.ip`              | AP / MQTT host IP (default `192.168.4.1`)                                   |
+| `audio.threshold_dbfs` | Trigger when level ≥ this (e.g. `-30`; louder ≈ closer to `0`)              |
+| `audio.cooldown_s`     | Ignore further triggers after a publish (default `2.5`)                     |
+| `audio.device`         | `null`, device index, or name substring (`"voice"` for INMP441 / voiceHAT)  |
+| `audio.sample_rate`    | Capture rate (default `48000` for I2S; app falls back if unsupported)       |
+| `audio.channels`       | Capture channels (default `2` for I2S; level uses left / ch 0)              |
+| `mqtt.host`            | Broker IP — usually the same as `wifi.ip`                                   |
+| `mqtt.qos`             | Publish QoS (default `1`; must match ESP32 `MQTT_QOS`)                      |
+| `display.mode`         | `auto` (UI if screen connected), `always`, or `never`                       |
+| `display.fullscreen`   | `null` = auto fullscreen when a screen is detected; `true`/`false` to force |
+| `display.sdl_driver`   | Optional SDL override (`x11`, `wayland`, `kmsdrm`)                          |
+| `volumes.default`      | Initial slider percent for all BOCAs (default `80`)                         |
+| `volumes.bocas[].id`   | Display id `1`/`2`/`3` (must match ESP32 `DISPLAY_ID`)                      |
+| `volumes.bocas[].topic`| MQTT volume topic (default `displays/bocaN/volume`)                         |
+
+
+Tune threshold with the VU bar: drag the yellow marker on the touch UI, or set `threshold_dbfs` in config a little below your peak.
 
 ---
+
+
 
 ## Network notes (Pi 3)
 
 - The Pi 3 has **one WiFi radio**: AP **or** client, not both.
-- Change the network name in **`config.yaml`** (`wifi.ssid` / `wifi.password`), re-run `sudo bash install/setup_ap.sh`, and update ESP32 `app_config.h` to the same values.
+- Change the network name in `**config.yaml**` (`wifi.ssid` / `wifi.password`), re-run `sudo bash install/setup_ap.sh`, and update ESP32 `app_config.h` to the same values.
 - Env vars `AP_SSID` / `AP_PASSWORD` still override the YAML when running the setup script.
 - AP IP from `wifi.ip` (default `192.168.4.1`) is the MQTT host used by the firmware.
 - MQTT anonymous access is intentional for an isolated local AP. Do not bridge this AP to the internet without adding authentication.
-- Webcam / I2S ALSA indexes can change after reboot — prefer a **name substring** in `config.yaml`.
-- Default mic path is **INMP441 on I2S** (`install/setup_i2s_mic.sh` + `audio.device: "voice"`). USB/webcam still works by changing `audio.device`.
+- Webcam ALSA indexes can change after reboot — prefer a **name substring** in `config.yaml`.
+
+
 
 ### Toggle AP ↔ home WiFi
 

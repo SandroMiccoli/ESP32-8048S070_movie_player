@@ -27,7 +27,7 @@ mqtt:
   client_id: rpi-sound-trigger
   qos: 1                 # at-least-once; must match ESP32 MQTT_QOS
 
-# On-screen VU meter
+# On-screen VU meter / touch UI
 # mode: auto   — show UI when a screen is connected, else headless (default)
 #       always — always open the VU window
 #       never  — always headless
@@ -40,3 +40,18 @@ display:
   fps: 15
   # Optional SDL driver override, e.g. x11 / wayland / kmsdrm
   # sdl_driver: x11
+
+# Per-display volume sliders (BOCA 1/2/3). Each ESP must set DISPLAY_ID to match.
+# Topics are retained so a board that joins late still gets the last volume.
+volumes:
+  default: 80
+  bocas:
+    - id: 1
+      label: "BOCA 1"
+      topic: displays/boca1/volume
+    - id: 2
+      label: "BOCA 2"
+      topic: displays/boca2/volume
+    - id: 3
+      label: "BOCA 3"
+      topic: displays/boca3/volume

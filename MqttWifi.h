@@ -19,6 +19,7 @@
 
 #include "app_config.h"
 #include "MqttCommand.h"
+#include "I2sPcmOutput.h"
 
 static WiFiClient g_mqttWifiClient;
 static PubSubClient g_mqttClient(g_mqttWifiClient);
@@ -44,13 +45,44 @@ static bool payloadHasState(const char *buf, const char *value)
   return strstr(colon, value) != nullptr;
 }
 
+static bool payloadParseVolume(const char *buf, int &outPercent)
+{
+  const char *key = strstr(buf, "\"volume\"");
+  if (key == nullptr)
+  {
+    return false;
+  }
+  const char *colon = strchr(key, ':');
+  if (colon == nullptr)
+  {
+    return false;
+  }
+  colon++;
+  while (*colon == ' ' || *colon == '\t')
+  {
+    colon++;
+  }
+  char *end = nullptr;
+  long value = strtol(colon, &end, 10);
+  if (end == colon)
+  {
+    return false;
+  }
+  if (value < 0)
+  {
+    value = 0;
+  }
+  if (value > 100)
+  {
+    value = 100;
+  }
+  outPercent = static_cast<int>(value);
+  return true;
+}
+
 static void mqttMessageCallback(char *topic, byte *payload, unsigned int length)
 {
-  if (g_mqttCmdState == nullptr || topic == nullptr)
-  {
-    return;
-  }
-  if (strcmp(topic, MQTT_TOPIC) != 0)
+  if (topic == nullptr)
   {
     return;
   }
@@ -59,6 +91,26 @@ static void mqttMessageCallback(char *topic, byte *payload, unsigned int length)
   unsigned int n = length < sizeof(buf) - 1 ? length : sizeof(buf) - 1;
   memcpy(buf, payload, n);
   buf[n] = '\0';
+
+  if (strcmp(topic, MQTT_VOLUME_TOPIC) == 0)
+  {
+    int percent = 0;
+    if (payloadParseVolume(buf, percent))
+    {
+      I2sPcmOutput::setVolumePercent(static_cast<uint8_t>(percent));
+      Serial.printf("MQTT: volume %d%%\n", percent);
+    }
+    else
+    {
+      Serial.printf("MQTT ignored volume payload: %s\n", buf);
+    }
+    return;
+  }
+
+  if (g_mqttCmdState == nullptr || strcmp(topic, MQTT_TOPIC) != 0)
+  {
+    return;
+  }
 
   if (payloadHasState(buf, "\"alert\""))
   {
@@ -548,7 +600,9 @@ static bool mqttEnsureConnected()
   if (g_mqttClient.connect(clientId))
   {
     g_mqttClient.subscribe(MQTT_TOPIC, MQTT_QOS);
+    g_mqttClient.subscribe(MQTT_VOLUME_TOPIC, MQTT_QOS);
     Serial.printf("MQTT subscribed to %s qos=%u\n", MQTT_TOPIC, (unsigned)MQTT_QOS);
+    Serial.printf("MQTT subscribed to %s (DISPLAY_ID=%d)\n", MQTT_VOLUME_TOPIC, DISPLAY_ID);
     return true;
   }
 
