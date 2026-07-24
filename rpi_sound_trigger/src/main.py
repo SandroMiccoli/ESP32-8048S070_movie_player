@@ -4,11 +4,11 @@
 from __future__ import annotations
 
 import argparse
+import os
 import signal
 import sys
 import time
 from pathlib import Path
-
 from typing import Optional
 
 import yaml
@@ -17,6 +17,7 @@ import yaml
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from audio_monitor import AudioMonitor, list_input_devices
+from display_detect import describe_display, screen_available
 from mqtt_publisher import MqttPublisher
 from vu_display import VuDisplay
 
@@ -28,6 +29,45 @@ def load_config(path: Path) -> dict:
 
 def default_config_path() -> Path:
     return Path(__file__).resolve().parent.parent / "config.yaml"
+
+
+def resolve_use_display(disp_cfg: dict, force_display: bool, force_headless: bool) -> bool:
+    """
+    Decide whether to open the on-screen VU meter.
+
+    Priority: --no-display > --display > config display.mode / enabled > auto-detect.
+    """
+    if force_headless:
+        return False
+    if force_display:
+        return True
+
+    mode = str(disp_cfg.get("mode", "auto")).strip().lower()
+    if mode in ("never", "off", "false", "0", "headless"):
+        return False
+    if mode in ("always", "on", "true", "1"):
+        return True
+
+    # Legacy: display.enabled false forces headless; true/missing → auto
+    if "mode" not in disp_cfg and disp_cfg.get("enabled") is False:
+        return False
+
+    return screen_available()
+
+
+def prepare_sdl_env(disp_cfg: dict) -> None:
+    """Set helpful SDL defaults for Pi HDMI when not already configured."""
+    if os.environ.get("SDL_VIDEODRIVER"):
+        return
+    driver = str(disp_cfg.get("sdl_driver", "")).strip()
+    if driver:
+        os.environ["SDL_VIDEODRIVER"] = driver
+        return
+    # Prefer Wayland/X11 when a session exists; otherwise let pygame probe
+    # (kmsdrm works well on Pi OS Lite with HDMI).
+    if not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")):
+        # Leave unset so pygame can try defaults; kmsdrm often needs root/video group.
+        pass
 
 
 def main() -> int:
@@ -47,7 +87,12 @@ def main() -> int:
     parser.add_argument(
         "--no-display",
         action="store_true",
-        help="Force headless (no pygame VU)",
+        help="Force headless (no pygame VU), even if a screen is connected",
+    )
+    parser.add_argument(
+        "--display",
+        action="store_true",
+        help="Force on-screen VU meter, even if no screen was detected",
     )
     args = parser.parse_args()
 
@@ -55,6 +100,10 @@ def main() -> int:
         print("Input devices:")
         print(list_input_devices())
         return 0
+
+    if args.display and args.no_display:
+        print("Choose only one of --display / --no-display", file=sys.stderr)
+        return 2
 
     cfg = load_config(args.config)
     audio_cfg = cfg.get("audio", {})
@@ -97,37 +146,52 @@ def main() -> int:
     signal.signal(signal.SIGINT, handle_signal)
     signal.signal(signal.SIGTERM, handle_signal)
 
+    use_display = resolve_use_display(disp_cfg, args.display, args.no_display)
+
     print(f"Config: {args.config}")
     print(f"MQTT {publisher.host}:{publisher.port} topic={publisher.topic}")
     print(f"Threshold {monitor.threshold_dbfs} dBFS, cooldown {monitor.cooldown_s}s")
+    print(f"Display: {describe_display()}")
+    print(f"UI mode: {'on-screen VU' if use_display else 'headless'}")
     print("Input devices:\n" + list_input_devices())
 
     publisher.connect()
     monitor.start()
 
-    use_display = bool(disp_cfg.get("enabled", True)) and not args.no_display
     if use_display:
+        prepare_sdl_env(disp_cfg)
+        # Fullscreen when a physical screen is present unless config overrides
+        fullscreen = disp_cfg.get("fullscreen")
+        if fullscreen is None:
+            fullscreen = screen_available()
+        else:
+            fullscreen = bool(fullscreen)
+
         display = VuDisplay(
             monitor=monitor,
             publisher=publisher,
             width=int(disp_cfg.get("width", 800)),
             height=int(disp_cfg.get("height", 480)),
             fps=int(disp_cfg.get("fps", 15)),
-            fullscreen=bool(disp_cfg.get("fullscreen", False)),
+            fullscreen=fullscreen,
             threshold_dbfs=monitor.threshold_dbfs,
         )
         try:
             display.run()
-        finally:
+        except Exception as exc:  # noqa: BLE001 — fall back so mic trigger still works
+            print(f"[display] UI failed ({exc}); continuing headless", file=sys.stderr)
+            display = None
+        else:
             monitor.stop()
             publisher.disconnect()
-        return 0
+            return 0
 
     print("Headless mode — Ctrl+C to stop")
     try:
         while not stop:
             print(
-                f"\r level={monitor.level_dbfs:7.1f} dBFS  mqtt={'ok' if publisher.connected else 'down'}    ",
+                f"\r level={monitor.level_dbfs:7.1f} dBFS  "
+                f"mqtt={'ok' if publisher.connected else 'down'}    ",
                 end="",
                 flush=True,
             )

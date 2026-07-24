@@ -26,10 +26,16 @@ mqtt:
   topic: displays/trigger
   client_id: rpi-sound-trigger
 
-# On-screen VU meter (set enabled: false for headless install)
+# On-screen VU meter
+# mode: auto   — show UI when a screen is connected, else headless (default)
+#       always — always open the VU window
+#       never  — always headless
+# fullscreen: null = auto (fullscreen when a screen is detected)
 display:
-  enabled: true
-  fullscreen: false
+  mode: auto
+  fullscreen: null
   width: 800
   height: 480
   fps: 15
+  # Optional SDL driver override, e.g. x11 / wayland / kmsdrm
+  # sdl_driver: x11

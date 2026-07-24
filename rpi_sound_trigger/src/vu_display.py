@@ -1,4 +1,4 @@
-"""pygame VU meter for microphone level (debug display)."""
+"""pygame VU meter for continuous microphone amplitude on an attached screen."""
 
 from __future__ import annotations
 
@@ -35,18 +35,25 @@ class VuDisplay:
 
     def run(self) -> None:
         pygame.init()
+        pygame.mouse.set_visible(False)
+
         flags = pygame.FULLSCREEN if self.fullscreen else 0
-        screen = pygame.display.set_mode((self.width, self.height), flags)
+        size = (0, 0) if self.fullscreen else (self.width, self.height)
+        screen = pygame.display.set_mode(size, flags)
+        self.width, self.height = screen.get_size()
         pygame.display.set_caption("RPi Sound Trigger — VU")
         clock = pygame.time.Clock()
-        font = pygame.font.SysFont("dejavusans", 28)
-        font_sm = pygame.font.SysFont("dejavusans", 20)
 
-        margin = 40
+        title_size = max(28, self.height // 16)
+        body_size = max(20, self.height // 22)
+        font = pygame.font.SysFont("dejavusans", title_size)
+        font_sm = pygame.font.SysFont("dejavusans", body_size)
+
+        margin = max(24, self.width // 32)
         bar_x = margin
-        bar_y = self.height // 2 - 40
+        bar_h = max(64, self.height // 6)
+        bar_y = self.height // 2 - bar_h // 2
         bar_w = self.width - 2 * margin
-        bar_h = 80
 
         # Threshold mark on the same -60..0 mapping as AudioMonitor.level_norm
         thr_norm = max(0.0, min(1.0, (self.threshold_dbfs + 60.0) / 60.0))
@@ -83,7 +90,8 @@ class VuDisplay:
             screen.blit(level_txt, (margin, bar_y + bar_h + 24))
 
             thr_txt = font_sm.render(f"threshold {self.threshold_dbfs:.1f} dBFS", True, (255, 220, 60))
-            screen.blit(thr_txt, (thr_x + 8, bar_y - 34))
+            thr_label_x = min(thr_x + 8, self.width - margin - thr_txt.get_width())
+            screen.blit(thr_txt, (thr_label_x, bar_y - body_size - 14))
 
             mqtt_color = (50, 200, 90) if mqtt_ok else (230, 70, 60)
             mqtt_txt = font_sm.render(
@@ -91,15 +99,15 @@ class VuDisplay:
                 True,
                 mqtt_color,
             )
-            screen.blit(mqtt_txt, (margin, self.height - margin - 50))
+            screen.blit(mqtt_txt, (margin, self.height - margin - body_size * 2 - 16))
 
             trig_txt = font_sm.render(f"Last trigger: {self._last_trigger_msg}", True, (180, 180, 190))
-            screen.blit(trig_txt, (margin, self.height - margin - 24))
+            screen.blit(trig_txt, (margin, self.height - margin - body_size))
 
             err = self.publisher.last_error
             if err:
                 err_txt = font_sm.render(err[:80], True, (230, 70, 60))
-                screen.blit(err_txt, (self.width // 2, self.height - margin - 50))
+                screen.blit(err_txt, (self.width // 2, self.height - margin - body_size * 2 - 16))
 
             pygame.display.flip()
             clock.tick(self.fps)
