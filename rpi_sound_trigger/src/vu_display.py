@@ -12,7 +12,7 @@ if TYPE_CHECKING:  # keeps the UI importable without sounddevice/paho installed
     from audio_monitor import AudioMonitor
     from mqtt_publisher import MqttPublisher
 
-# Black on white. Colour is reserved for meaning only: yellow threshold,
+# White on black. Colour is reserved for meaning only: yellow threshold,
 # green/red level + MQTT state.
 WHITE = (255, 255, 255)
 BLACK = (0, 0, 0)
@@ -287,7 +287,7 @@ class VuDisplay:
         self._last_volume_pub[idx] = (boca.percent, now)
 
     def _draw(self, screen: pygame.Surface) -> None:
-        screen.fill(WHITE)
+        screen.fill(BLACK)
         self._draw_header(screen)
         self._draw_meter(screen)
         self._draw_status(screen)
@@ -295,10 +295,10 @@ class VuDisplay:
 
     def _draw_header(self, screen: pygame.Surface) -> None:
         margin = self._margin
-        title = self.font_title.render("BOCAS", True, BLACK)
+        title = self.font_title.render("BOCAS", True, WHITE)
         screen.blit(title, (margin, self._header_y))
 
-        clock_txt = self.font_clock.render(time.strftime("%H:%M:%S"), True, BLACK)
+        clock_txt = self.font_clock.render(time.strftime("%H:%M:%S"), True, WHITE)
         # Baseline-align the clock with the bottom of the title
         clock_y = self._header_y + title.get_height() - clock_txt.get_height()
         screen.blit(clock_txt, (self.width - margin - clock_txt.get_width(), clock_y))
@@ -310,7 +310,7 @@ class VuDisplay:
         over = level >= self.threshold_dbfs
 
         # Row above the bar: level readout (left) + threshold value (near marker)
-        level_txt = self.font_body.render(f"Level: {level:6.1f} dBFS", True, BLACK)
+        level_txt = self.font_body.render(f"Level: {level:6.1f} dBFS", True, WHITE)
         screen.blit(level_txt, (margin, self._level_row_y))
 
         thr_x = self._threshold_x()
@@ -323,7 +323,7 @@ class VuDisplay:
         if thr_max_x >= thr_min_x:
             screen.blit(thr_txt, (thr_label_x, self._level_row_y))
 
-        pygame.draw.rect(screen, BLACK, bar, width=3)
+        pygame.draw.rect(screen, WHITE, bar, width=3)
         fill_w = int(self.monitor.level_norm * (bar.width - 6))
         if fill_w > 0:
             fill = pygame.Rect(bar.x + 3, bar.y + 3, fill_w, bar.height - 6)
@@ -349,7 +349,7 @@ class VuDisplay:
         mqtt_ok = self.publisher.connected
 
         # MQTT status: right-aligned, state word coloured
-        prefix = self.font_body.render("MQTT Status: ", True, BLACK)
+        prefix = self.font_body.render("MQTT Status: ", True, WHITE)
         state = self.font_body.render(
             "Connected" if mqtt_ok else "Disconnected", True, GREEN if mqtt_ok else RED
         )
@@ -364,7 +364,7 @@ class VuDisplay:
                 self.font_body, f"Last trigger: {self._last_trigger_msg}", trigger_room
             ),
             True,
-            BLACK,
+            WHITE,
         )
         screen.blit(trig_txt, (margin, y))
 
@@ -379,17 +379,17 @@ class VuDisplay:
         for i, boca in enumerate(self.bocas):
             track = self._slider_tracks[i]
 
-            label = self.font_label.render(boca.label, True, BLACK)
+            label = self.font_label.render(boca.label, True, WHITE)
             screen.blit(
                 label, (track.centerx - label.get_width() // 2, self._slider_label_y)
             )
 
-            pygame.draw.rect(screen, BLACK, track, width=3)
+            pygame.draw.rect(screen, WHITE, track, width=3)
             fill_h = int((track.height - 6) * (boca.percent / 100.0))
             if fill_h > 0:
                 pygame.draw.rect(
                     screen,
-                    BLACK,
+                    WHITE,
                     pygame.Rect(
                         track.x + 3, track.bottom - 3 - fill_h, track.width - 6, fill_h
                     ),
@@ -400,19 +400,19 @@ class VuDisplay:
             handle.centerx = track.centerx
             handle.centery = track.bottom - 3 - fill_h
             handle.top = max(track.top, min(handle.top, track.bottom - handle_h))
-            pygame.draw.rect(screen, BLACK, handle)
+            pygame.draw.rect(screen, WHITE, handle)
 
             pct_text = f"{boca.percent}%"
             pct_w, pct_h = self.font_pct.size(pct_text)
             gap = 4
             if handle.top - track.top >= pct_h + 2 * gap:
-                # Room on the unfilled (white) part above the handle
+                # Room on the unfilled (black) part above the handle
                 pct_y = handle.top - gap - pct_h
-                pct_col = BLACK
-            else:
-                # Knock the value out of the black fill below the handle
-                pct_y = min(handle.bottom + gap, track.bottom - 3 - pct_h)
                 pct_col = WHITE
+            else:
+                # Knock the value out of the white fill below the handle
+                pct_y = min(handle.bottom + gap, track.bottom - 3 - pct_h)
+                pct_col = BLACK
             pct = self.font_pct.render(pct_text, True, pct_col)
             screen.blit(pct, (track.centerx - pct_w // 2, pct_y))
 
