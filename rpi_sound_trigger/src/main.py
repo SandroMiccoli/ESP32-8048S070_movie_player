@@ -119,7 +119,7 @@ def main() -> int:
         qos=int(mqtt_cfg.get("qos", 1)),
     )
 
-    default_vol = int(vol_cfg.get("default", 80))
+    default_vol = int(vol_cfg.get("default", 30))
     bocas: list[BocaVolume] = []
     for entry in vol_cfg.get("bocas") or []:
         boca_id = int(entry.get("id", len(bocas) + 1))
@@ -138,6 +138,9 @@ def main() -> int:
             BocaVolume(3, "BOCA 3", "displays/boca3/volume", default_vol),
         ]
 
+    # Seed retained volumes so every display gets the default when it joins MQTT.
+    publisher.set_volumes({b.topic: b.percent for b in bocas})
+
     display: Optional[VuDisplay] = None
 
     def on_trigger(level_dbfs: float) -> None:
@@ -151,7 +154,7 @@ def main() -> int:
         sample_rate=int(audio_cfg.get("sample_rate", 48000)),
         channels=int(audio_cfg.get("channels", 2)),
         block_ms=int(audio_cfg.get("block_ms", 50)),
-        threshold_dbfs=float(audio_cfg.get("threshold_dbfs", -30.0)),
+        threshold_dbfs=float(audio_cfg.get("threshold_dbfs", -15.0)),
         cooldown_s=float(audio_cfg.get("cooldown_s", 2.5)),
         on_trigger=on_trigger,
     )

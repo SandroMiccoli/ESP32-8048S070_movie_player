@@ -16,7 +16,7 @@ audio:
   sample_rate: 48000    # I2S overlays prefer 48 kHz; app falls back if unsupported
   channels: 2           # voiceHAT often stereo; L/R→GND puts signal on left (ch 0)
   block_ms: 50          # analysis window size
-  threshold_dbfs: -30.0 # trigger when level >= this (less negative = louder); retune on device
+  threshold_dbfs: -15.0 # trigger when level >= this (less negative = louder); retune on device
   cooldown_s: 2.5       # ignore further triggers for this many seconds after publish
 
 # MQTT broker on the RPi access point (mqtt.host should match wifi.ip)
@@ -43,8 +43,9 @@ display:
 
 # Per-display volume sliders (BOCA 1/2/3). Each ESP must set DISPLAY_ID to match.
 # Topics are retained so a board that joins late still gets the last volume.
+# On MQTT connect the app (re)publishes these so every screen is set to the default.
 volumes:
-  default: 80
+  default: 30
   bocas:
     - id: 1
       label: "BOCA 1"

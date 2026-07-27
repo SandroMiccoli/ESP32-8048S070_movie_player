@@ -182,7 +182,7 @@
 #define MQTT_KEEPALIVE_S 30
 #define MQTT_LOOP_DELAY_MS 10
 // Default speaker level until the Pi sends a retained volume message (0–100).
-#define AUDIO_VOLUME_PERCENT_DEFAULT 80
+#define AUDIO_VOLUME_PERCENT_DEFAULT 30
 
 // ---------------------------------------------------------------------------
 // Dual-core pipeline — SD reading/framing runs on a task pinned to one core

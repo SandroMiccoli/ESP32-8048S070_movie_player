@@ -603,6 +603,16 @@ static bool mqttEnsureConnected()
     g_mqttClient.subscribe(MQTT_VOLUME_TOPIC, MQTT_QOS);
     Serial.printf("MQTT subscribed to %s qos=%u\n", MQTT_TOPIC, (unsigned)MQTT_QOS);
     Serial.printf("MQTT subscribed to %s (DISPLAY_ID=%d)\n", MQTT_VOLUME_TOPIC, DISPLAY_ID);
+
+    // Tell the Pi we joined so it can push the current volume (default 30%).
+    char onlineTopic[40];
+    snprintf(onlineTopic, sizeof(onlineTopic), "displays/boca%d/online", DISPLAY_ID);
+    char onlinePayload[48];
+    snprintf(onlinePayload, sizeof(onlinePayload),
+             "{\"online\":true,\"ts\":%lu}",
+             (unsigned long)(millis() / 1000UL));
+    g_mqttClient.publish(onlineTopic, onlinePayload, false);
+    Serial.printf("MQTT announced online on %s\n", onlineTopic);
     return true;
   }
 

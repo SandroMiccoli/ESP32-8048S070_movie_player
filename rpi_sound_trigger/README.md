@@ -141,7 +141,7 @@ audio:
   device: "voice"      # substring of Google voiceHAT / I2S card name
   sample_rate: 48000
   channels: 2          # overlay is often stereo; app uses left (ch 0)
-  threshold_dbfs: -30.0
+  threshold_dbfs: -15.0
 ```
 
 If `--list-devices` shows a different name, change `audio.device` to a stable substring of that name.
@@ -375,7 +375,8 @@ ESP32s ignore unknown fields; only `state` is required. After playing `alert.mjp
 | Topic   | `displays/boca1/volume` … `displays/boca3/volume`             |
 | QoS     | 1                                                             |
 | Retain  | yes (late-joining boards pick up the last slider value)       |
-| Payload | `{"volume":75,"ts":<unix>}` — `volume` is 0–100               |
+| Payload | `{"volume":30,"ts":<unix>}` — `volume` is 0–100               |
+| On join | Each ESP publishes `displays/bocaN/online`; the Pi replies with that board’s volume |
 
 
 On each ESP32, set `DISPLAY_ID` to `1`, `2`, or `3` in `app_config.h` before flashing so the board subscribes to the matching topic. The Pi touch UI sliders **BOCA 1 / 2 / 3** publish to these topics.
@@ -392,7 +393,7 @@ On each ESP32, set `DISPLAY_ID` to `1`, `2`, or `3` in `app_config.h` before fla
 | `wifi.ssid`            | Access Point name (must match ESP32 `WIFI_SSID`)                            |
 | `wifi.password`        | WPA2 passphrase, ≥ 8 chars (must match ESP32 `WIFI_PASSWORD`)               |
 | `wifi.ip`              | AP / MQTT host IP (default `192.168.4.1`)                                   |
-| `audio.threshold_dbfs` | Trigger when level ≥ this (e.g. `-30`; louder ≈ closer to `0`)              |
+| `audio.threshold_dbfs` | Trigger when level ≥ this (e.g. `-15`; louder ≈ closer to `0`)              |
 | `audio.cooldown_s`     | Ignore further triggers after a publish (default `2.5`)                     |
 | `audio.device`         | `null`, device index, or name substring (`"voice"` for INMP441 / voiceHAT)  |
 | `audio.sample_rate`    | Capture rate (default `48000` for I2S; app falls back if unsupported)       |
@@ -402,7 +403,7 @@ On each ESP32, set `DISPLAY_ID` to `1`, `2`, or `3` in `app_config.h` before fla
 | `display.mode`         | `auto` (UI if screen connected), `always`, or `never`                       |
 | `display.fullscreen`   | `null` = auto fullscreen when a screen is detected; `true`/`false` to force |
 | `display.sdl_driver`   | Optional SDL override (`x11`, `wayland`, `kmsdrm`)                          |
-| `volumes.default`      | Initial slider percent for all BOCAs (default `80`)                         |
+| `volumes.default`      | Initial slider percent for all BOCAs (default `30`)                         |
 | `volumes.bocas[].id`   | Display id `1`/`2`/`3` (must match ESP32 `DISPLAY_ID`)                      |
 | `volumes.bocas[].topic`| MQTT volume topic (default `displays/bocaN/volume`)                         |
 

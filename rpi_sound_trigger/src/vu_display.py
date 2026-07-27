@@ -72,7 +72,7 @@ class VuDisplay:
         height: int = 480,
         fps: int = 15,
         fullscreen: bool = False,
-        threshold_dbfs: float = -25.0,
+        threshold_dbfs: float = -15.0,
         bocas: Optional[Sequence[BocaVolume]] = None,
     ) -> None:
         self.monitor = monitor
@@ -83,9 +83,9 @@ class VuDisplay:
         self.fullscreen = fullscreen
         self.threshold_dbfs = float(threshold_dbfs)
         self.bocas: List[BocaVolume] = list(bocas) if bocas else [
-            BocaVolume(1, "BOCA 1", "displays/boca1/volume", 80),
-            BocaVolume(2, "BOCA 2", "displays/boca2/volume", 80),
-            BocaVolume(3, "BOCA 3", "displays/boca3/volume", 80),
+            BocaVolume(1, "BOCA 1", "displays/boca1/volume", 30),
+            BocaVolume(2, "BOCA 2", "displays/boca2/volume", 30),
+            BocaVolume(3, "BOCA 3", "displays/boca3/volume", 30),
         ]
         self._last_trigger_msg = "—"
         self._running = False

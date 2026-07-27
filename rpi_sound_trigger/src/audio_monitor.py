@@ -69,7 +69,7 @@ class AudioMonitor:
         sample_rate: int = 48000,
         channels: int = 2,
         block_ms: int = 50,
-        threshold_dbfs: float = -30.0,
+        threshold_dbfs: float = -15.0,
         cooldown_s: float = 2.5,
         on_trigger: Optional[Callable[[float], None]] = None,
     ) -> None:
